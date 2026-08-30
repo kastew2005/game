@@ -3,22 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>🍃 Деревенская RPG</title>
+    <title>🌾 Деревня RPG — с воином</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            user-select: none;
-            -webkit-tap-highlight-color: transparent;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; -webkit-tap-highlight-color: transparent; }
         body {
             background: #1d3b1a;
             display: flex;
             justify-content: center;
             align-items: center;
             min-height: 100vh;
-            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            font-family: 'Segoe UI', system-ui, sans-serif;
             touch-action: pan-y;
         }
         .game-wrapper {
@@ -26,11 +20,12 @@
             padding: 12px;
             border-radius: 40px 40px 20px 20px;
             box-shadow: 0 20px 30px rgba(0,0,0,0.5);
+            max-width: 420px;
+            width: 100%;
         }
         canvas {
             display: block;
             width: 100%;
-            max-width: 400px;
             height: auto;
             aspect-ratio: 400 / 400;
             background: #b0d9a0;
@@ -40,6 +35,23 @@
             touch-action: none;
             margin: 0 auto;
         }
+        .info-panel {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 10px;
+            color: #f9f2d9;
+            font-weight: bold;
+            text-shadow: 2px 2px 0 #1d2e16;
+            font-size: 18px;
+            background: #3a6b2f;
+            padding: 6px 16px;
+            border-radius: 60px;
+            width: fit-content;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        .info-panel span { display: flex; align-items: center; gap: 4px; }
         .controls {
             display: flex;
             justify-content: space-between;
@@ -97,31 +109,17 @@
             transform: translateY(5px);
             box-shadow: 0 2px 0 #6f3a1f;
         }
-        .info-panel {
-            display: flex;
-            justify-content: center;
-            gap: 20px;
-            margin-bottom: 10px;
-            color: #f9f2d9;
-            font-weight: bold;
-            text-shadow: 2px 2px 0 #1d2e16;
-            font-size: 18px;
-            background: #3a6b2f;
-            padding: 6px 16px;
-            border-radius: 60px;
-            width: fit-content;
-            margin-left: auto;
-            margin-right: auto;
-        }
-        .info-panel span {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-        }
         @media (max-width: 440px) {
             .controls { flex-direction: column; align-items: center; }
             .dpad { width: 140px; }
             .action-btn { width: 100%; max-width: 200px; }
+        }
+        .footnote {
+            text-align: center;
+            margin-top: 10px;
+            color: #d4d8b0;
+            font-size: 14px;
+            text-shadow: 1px 1px 0 #1d2e16;
         }
     </style>
 </head>
@@ -130,6 +128,7 @@
     <div class="info-panel">
         <span>❤️ <span id="hpDisplay">5</span></span>
         <span>🗡️ <span id="atkDisplay">2</span></span>
+        <span>⚔️ <span id="warriorStatus">воин</span></span>
     </div>
     <canvas id="gameCanvas" width="400" height="400"></canvas>
     <div class="controls">
@@ -143,21 +142,19 @@
         </div>
         <button class="action-btn" id="btnAction">⚔️</button>
     </div>
-    <div style="text-align: center; margin-top: 10px; color: #d4d8b0; font-size: 14px; text-shadow: 1px 1px 0 #1d2e16;">
-        🏡 деревня · говори с жителями
-    </div>
+    <div class="footnote">🏡 деревня · говори с жителями · воин рядом</div>
 </div>
+
 <script>
     (function() {
+        // ---------- КАНВАС ----------
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
-
-        // ---- ИГРОВЫЕ ДАННЫЕ ----
         const TILE_SIZE = 40;
         const MAP_COLS = 10;
         const MAP_ROWS = 10;
 
-        // Карта: 0-трава, 1-дом, 2-забор, 3-дерево, 4-колодец, 5-цветок
+        // ---------- КАРТА ----------
         const map = [
             [3,3,0,0,0,1,1,0,0,3],
             [3,0,0,0,0,1,1,0,0,0],
@@ -171,7 +168,7 @@
             [3,0,0,0,0,0,0,0,0,3]
         ];
 
-        // Жители: { x, y, name, dialog }
+        // ---------- ЖИТЕЛИ ----------
         const villagers = [
             { x: 2, y: 1, name: '🌾 Фермер', dialog: 'Добро пожаловать! Урожай нынче знатный.' },
             { x: 5, y: 3, name: '🧑‍🌾 Садовод', dialog: 'Поливаю цветы каждый день.' },
@@ -180,116 +177,326 @@
             { x: 8, y: 7, name: '🧙 Кузнец', dialog: 'Хочешь меч? Сделаю за 5 монет.' }
         ];
 
-        // Игрок
+        // ---------- ПЕРСОНАЖ ВОИН (отдельный) ----------
+        // Воин стоит на карте как NPC, но управляется отдельно
+        const warrior = {
+            x: 2,
+            y: 4,
+            dir: 'down',
+            frame: 0,
+            moving: false,
+            attacking: false,
+            attackFrame: 0,
+            animCounter: 0,
+            // спрайты заполним позже
+            sprites: null,
+            attackSprites: null,
+        };
+
+        // ---------- ИГРОК (наш герой) ----------
         let player = {
-            x: 4,
+            x: 6,
             y: 4,
             hp: 5,
             atk: 2,
             hasSword: false
         };
 
-        // Состояние диалога
+        // ---------- СОСТОЯНИЕ ДИАЛОГА ----------
         let dialogText = '';
         let dialogTimer = 0;
 
-        // Смещение камеры (центрируем на игроке)
-        let cameraX = 0;
-        let cameraY = 0;
+        // ---------- КАМЕРА ----------
+        let cameraX = 0, cameraY = 0;
 
-        // ---- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ----
+        // ---------- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ----------
         function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 
         function isWalkable(x, y) {
             if (x < 0 || x >= MAP_COLS || y < 0 || y >= MAP_ROWS) return false;
             const tile = map[y][x];
-            // 1-дом, 2-забор, 4-колодец, 3-дерево — непроходимы
             if (tile === 1 || tile === 2 || tile === 3 || tile === 4) return false;
+            // Нельзя наступать на жителей
+            if (villagers.some(v => v.x === x && v.y === y)) return false;
+            // Воин тоже занимает клетку
+            if (warrior.x === x && warrior.y === y) return false;
             return true;
         }
 
-        // Проверка столкновения с жителями (нельзя наступать)
-        function isVillagerAt(x, y) {
-            return villagers.some(v => v.x === x && v.y === y);
-        }
-
         function canMoveTo(x, y) {
-            return isWalkable(x, y) && !isVillagerAt(x, y);
+            return isWalkable(x, y);
         }
 
-        // ---- ДИАЛОГИ ----
+        // ---------- ДИАЛОГИ ----------
         function showDialog(text) {
             dialogText = text;
-            dialogTimer = 180; // ~3 секунды при 60fps
+            dialogTimer = 180;
         }
 
-        // ---- ИГРОВАЯ ЛОГИКА ----
+        // ---------- ЛОГИКА ИГРОКА ----------
         function tryMove(dx, dy) {
+            if (dialogTimer > 0) return false;
             const newX = player.x + dx;
             const newY = player.y + dy;
             if (canMoveTo(newX, newY)) {
                 player.x = newX;
                 player.y = newY;
-                // проверим, не наступили ли на жителя (но мы уже проверили canMoveTo)
                 return true;
             } else {
-                // Если не можем двигаться — возможно, пытаемся поговорить
+                // Проверяем, не житель ли рядом
                 const targetX = player.x + dx;
                 const targetY = player.y + dy;
                 const villager = villagers.find(v => v.x === targetX && v.y === targetY);
                 if (villager) {
                     showDialog(`${villager.name}: ${villager.dialog}`);
+                } else if (warrior.x === targetX && warrior.y === targetY) {
+                    showDialog('⚔️ Воин: «Привет, странник! Дорогу охраняю.»');
                 } else {
-                    // если стена — короткий текст
                     const tile = map[targetY]?.[targetX];
                     if (tile === 1) showDialog('🏠 Чей-то дом. Стучаться неловко.');
                     else if (tile === 2) showDialog('Забор. Крепкий.');
                     else if (tile === 3) showDialog('🌳 Большое дерево.');
                     else if (tile === 4) showDialog('💧 Колодец. Вода холодная.');
                     else if (tile === 5) showDialog('🌸 Красивый цветок.');
-                    else if (!isWalkable(targetX, targetY)) {
-                        showDialog('Проход закрыт.');
-                    }
+                    else if (!isWalkable(targetX, targetY)) showDialog('Проход закрыт.');
                 }
                 return false;
             }
         }
 
-        // Действие (атака / взаимодействие)
         function doAction() {
-            // Проверяем, есть ли житель рядом (соседство по 4 направлениям)
-            const directions = [[0,-1],[0,1],[-1,0],[1,0]];
-            let foundVillager = null;
-            let foundDir = null;
-            for (let d of directions) {
-                const checkX = player.x + d[0];
-                const checkY = player.y + d[1];
-                const v = villagers.find(v => v.x === checkX && v.y === checkY);
+            if (dialogTimer > 0) return;
+            // Проверяем жителей рядом
+            const dirs = [[0,-1],[0,1],[-1,0],[1,0]];
+            let found = false;
+            for (let d of dirs) {
+                const cx = player.x + d[0];
+                const cy = player.y + d[1];
+                const v = villagers.find(v => v.x === cx && v.y === cy);
                 if (v) {
-                    foundVillager = v;
-                    foundDir = d;
+                    showDialog(`${v.name}: «${v.dialog}»`);
+                    found = true;
+                    break;
+                }
+                if (warrior.x === cx && warrior.y === cy) {
+                    showDialog('⚔️ Воин: «Будь осторожен, путник. Вокруг разбойники.»');
+                    found = true;
                     break;
                 }
             }
-            if (foundVillager) {
-                // "Атака" — но в мирной деревне это разговор
-                showDialog(`${foundVillager.name}: «${foundVillager.dialog}»`);
-                // маленький урон, если это не дружелюбно? нет, просто шутка
-                if (player.atk >= 3) {
-                    showDialog(`${foundVillager.name} восхищается твоим мечом!`);
-                }
-                return;
+            if (!found) {
+                showDialog('🌿 Здесь никого нет. Пойдём дальше.');
             }
-
-            // Если рядом нет жителя — проверяем, может, копаем?
-            showDialog('🌱 Здесь ничего особенного.');
         }
 
-        // ---- ОТРИСОВКА ----
+        // ---------- ЛОГИКА ВОИНА (автономное движение + анимация) ----------
+        function updateWarrior() {
+            // Воин стоит на месте, но может атаковать время от времени (эффект)
+            if (!warrior.attacking && Math.random() < 0.002) {
+                warrior.attacking = true;
+                warrior.attackFrame = 0;
+            }
+            if (warrior.attacking) {
+                warrior.attackFrame++;
+                if (warrior.attackFrame >= 20) {
+                    warrior.attacking = false;
+                    warrior.attackFrame = 0;
+                }
+            }
+            // Анимация покоя: смена направления иногда
+            if (!warrior.moving && !warrior.attacking) {
+                warrior.animCounter++;
+                if (warrior.animCounter > 120) {
+                    warrior.animCounter = 0;
+                    const dirs = ['down', 'left', 'right', 'up'];
+                    warrior.dir = dirs[Math.floor(Math.random() * dirs.length)];
+                }
+            }
+        }
+
+        // ---------- СОЗДАНИЕ СПРАЙТОВ ВОИНА (пиксельный 48x48) ----------
+        function createWarriorSpriteSet() {
+            const SPRITE_SIZE = 48;
+            function createBaseSprite() {
+                const c = document.createElement('canvas');
+                c.width = SPRITE_SIZE;
+                c.height = SPRITE_SIZE;
+                const cx = c.getContext('2d');
+                const PAL = {
+                    skin: '#dba87a', skinShadow: '#b8835a', armor: '#5a7a9a',
+                    armorDark: '#3a5a7a', armorLight: '#8ab0d0', helmet: '#7a8a9a',
+                    helmetDark: '#4a5a6a', belt: '#8a6a3a', boots: '#4a2a1a',
+                    sword: '#d0d0e0', swordDark: '#8a8a9a', handle: '#6a3a1a',
+                    cape: '#8a2a3a', capeLight: '#b04a5a', eye: '#2a4a6a',
+                    eyeGlow: '#4af', gold: '#c0a040', fur: '#8a6a4a',
+                };
+                cx.clearRect(0, 0, SPRITE_SIZE, SPRITE_SIZE);
+                // Тело
+                cx.fillStyle = PAL.armor;
+                cx.fillRect(14, 18, 20, 18);
+                cx.fillStyle = PAL.armorDark;
+                cx.fillRect(14, 18, 4, 18);
+                cx.fillRect(30, 18, 4, 18);
+                cx.fillStyle = PAL.gold;
+                cx.fillRect(20, 22, 8, 10);
+                cx.fillStyle = '#8a6a2a';
+                cx.fillRect(22, 24, 4, 6);
+                cx.fillRect(20, 26, 8, 2);
+                cx.fillStyle = PAL.gold;
+                cx.fillRect(16, 24, 4, 4);
+                cx.fillRect(28, 24, 4, 4);
+                // Плечи
+                cx.fillStyle = PAL.armorDark;
+                cx.fillRect(8, 16, 8, 8);
+                cx.fillRect(32, 16, 8, 8);
+                cx.fillStyle = PAL.armorLight;
+                cx.fillRect(9, 17, 6, 6);
+                cx.fillRect(33, 17, 6, 6);
+                cx.fillStyle = PAL.gold;
+                cx.fillRect(10, 14, 4, 4);
+                cx.fillRect(34, 14, 4, 4);
+                // Руки
+                cx.fillStyle = PAL.armor;
+                cx.fillRect(8, 24, 6, 10);
+                cx.fillRect(34, 24, 6, 10);
+                cx.fillStyle = PAL.armorDark;
+                cx.fillRect(8, 30, 6, 4);
+                cx.fillRect(34, 30, 6, 4);
+                // Ноги
+                cx.fillStyle = PAL.armor;
+                cx.fillRect(16, 36, 6, 8);
+                cx.fillRect(26, 36, 6, 8);
+                cx.fillStyle = PAL.boots;
+                cx.fillRect(14, 40, 8, 6);
+                cx.fillRect(26, 40, 8, 6);
+                cx.fillStyle = PAL.gold;
+                cx.fillRect(16, 38, 6, 3);
+                cx.fillRect(26, 38, 6, 3);
+                // Голова
+                cx.fillStyle = PAL.helmet;
+                cx.fillRect(14, 4, 20, 14);
+                cx.fillStyle = PAL.helmetDark;
+                cx.fillRect(16, 10, 16, 4);
+                cx.fillStyle = PAL.eye;
+                cx.fillRect(18, 8, 5, 3);
+                cx.fillRect(25, 8, 5, 3);
+                cx.fillStyle = PAL.eyeGlow;
+                cx.fillRect(19, 9, 3, 1);
+                cx.fillRect(26, 9, 3, 1);
+                cx.fillStyle = '#6a3a1a';
+                cx.fillRect(20, 2, 8, 4);
+                cx.fillStyle = PAL.gold;
+                cx.fillRect(22, 1, 4, 3);
+                cx.fillStyle = PAL.armorDark;
+                cx.fillRect(12, 12, 4, 6);
+                cx.fillRect(32, 12, 4, 6);
+                // Плащ
+                cx.fillStyle = PAL.cape;
+                cx.fillRect(6, 20, 6, 22);
+                cx.fillRect(36, 20, 6, 22);
+                cx.fillStyle = PAL.capeLight;
+                cx.fillRect(7, 22, 4, 18);
+                cx.fillRect(37, 22, 4, 18);
+                // Меч
+                cx.fillStyle = PAL.handle;
+                cx.fillRect(40, 20, 4, 10);
+                cx.fillStyle = PAL.gold;
+                cx.fillRect(38, 26, 8, 3);
+                cx.fillStyle = PAL.sword;
+                cx.fillRect(41, 4, 2, 18);
+                cx.fillStyle = PAL.swordDark;
+                cx.fillRect(42, 6, 1, 14);
+                cx.fillStyle = '#f0f0ff';
+                cx.fillRect(41, 4, 1, 16);
+                // Пояс
+                cx.fillStyle = PAL.belt;
+                cx.fillRect(12, 30, 24, 4);
+                cx.fillStyle = PAL.gold;
+                cx.fillRect(21, 30, 6, 4);
+                cx.fillStyle = '#8a7a2a';
+                cx.fillRect(22, 31, 4, 2);
+                cx.fillStyle = PAL.fur;
+                cx.fillRect(14, 16, 20, 4);
+                cx.fillStyle = '#6a4a2a';
+                cx.fillRect(16, 17, 16, 2);
+                cx.fillStyle = PAL.gold;
+                cx.fillRect(13, 20, 2, 2);
+                cx.fillRect(33, 20, 2, 2);
+                cx.fillRect(13, 28, 2, 2);
+                cx.fillRect(33, 28, 2, 2);
+                return c;
+            }
+
+            const base = createBaseSprite();
+            const dirs = ['down', 'left', 'right', 'up'];
+            const angles = [0, -Math.PI/2, Math.PI/2, Math.PI];
+            const sprites = {};
+            dirs.forEach((dir, i) => {
+                const c = document.createElement('canvas');
+                c.width = SPRITE_SIZE;
+                c.height = SPRITE_SIZE;
+                const cx = c.getContext('2d');
+                cx.save();
+                cx.translate(SPRITE_SIZE/2, SPRITE_SIZE/2);
+                cx.rotate(angles[i]);
+                cx.drawImage(base, -SPRITE_SIZE/2, -SPRITE_SIZE/2);
+                cx.restore();
+                sprites[dir] = c;
+            });
+
+            // Атака (4 кадра)
+            const attackFrames = [];
+            for (let i = 0; i < 4; i++) {
+                const c = document.createElement('canvas');
+                c.width = SPRITE_SIZE;
+                c.height = SPRITE_SIZE;
+                const cx = c.getContext('2d');
+                cx.drawImage(base, 0, 0);
+                const progress = i / 3;
+                const radius = 24 + progress * 10;
+                cx.save();
+                cx.translate(SPRITE_SIZE/2 + 8, SPRITE_SIZE/2 - 4);
+                const angle = -Math.PI/2 + progress * Math.PI;
+                cx.rotate(angle);
+                cx.strokeStyle = `rgba(200, 200, 255, ${0.6 - progress * 0.4})`;
+                cx.lineWidth = 4;
+                cx.beginPath();
+                cx.moveTo(0, -6);
+                cx.quadraticCurveTo(radius/2, -radius/2, radius, -radius/3);
+                cx.stroke();
+                const grad = cx.createRadialGradient(0, 0, 2, 0, 0, radius);
+                grad.addColorStop(0, `rgba(255, 255, 200, ${0.4 - progress * 0.3})`);
+                grad.addColorStop(1, 'rgba(255, 200, 100, 0)');
+                cx.fillStyle = grad;
+                cx.beginPath();
+                cx.arc(0, 0, radius, 0, Math.PI * 2);
+                cx.fill();
+                cx.restore();
+                attackFrames.push(c);
+            }
+
+            return { sprites, attackFrames };
+        }
+
+        // ---------- ИНИЦИАЛИЗАЦИЯ ВОИНА ----------
+        const warriorSet = createWarriorSpriteSet();
+        warrior.sprites = warriorSet.sprites;
+        warrior.attackSprites = warriorSet.attackFrames;
+
+        // ---------- ОБНОВЛЕНИЕ СОСТОЯНИЯ ИГРЫ ----------
+        function update() {
+            if (dialogTimer > 0) {
+                dialogTimer--;
+                if (dialogTimer === 0) dialogText = '';
+            }
+            document.getElementById('hpDisplay').innerText = player.hp;
+            document.getElementById('atkDisplay').innerText = player.atk;
+            updateWarrior();
+        }
+
+        // ---------- ОТРИСОВКА ----------
         function draw() {
             ctx.clearRect(0, 0, 400, 400);
-
-            // Рассчёт камеры (центрируем игрока)
             cameraX = player.x * TILE_SIZE - 200 + TILE_SIZE/2;
             cameraY = player.y * TILE_SIZE - 200 + TILE_SIZE/2;
             cameraX = clamp(cameraX, 0, MAP_COLS * TILE_SIZE - 400);
@@ -298,24 +505,16 @@
             ctx.save();
             ctx.translate(-cameraX, -cameraY);
 
-            // ---- Рисуем карту ----
+            // Карта
             for (let row = 0; row < MAP_ROWS; row++) {
                 for (let col = 0; col < MAP_COLS; col++) {
                     const tile = map[row][col];
                     const x = col * TILE_SIZE;
                     const y = row * TILE_SIZE;
-
-                    // фон травы
-                    if ((col + row) % 2 === 0) {
-                        ctx.fillStyle = '#8cb87a';
-                    } else {
-                        ctx.fillStyle = '#7dab6a';
-                    }
+                    ctx.fillStyle = ((col + row) % 2 === 0) ? '#8cb87a' : '#7dab6a';
                     ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-
-                    // рисуем тайлы
                     switch(tile) {
-                        case 1: // дом
+                        case 1:
                             ctx.fillStyle = '#c98d5c';
                             ctx.fillRect(x+4, y+8, 32, 28);
                             ctx.fillStyle = '#b5733e';
@@ -323,14 +522,14 @@
                             ctx.fillStyle = '#a52a2a';
                             ctx.fillRect(x+24, y+12, 6, 8);
                             break;
-                        case 2: // забор
+                        case 2:
                             ctx.fillStyle = '#7a5d3c';
                             ctx.fillRect(x+4, y+4, 32, 8);
                             ctx.fillRect(x+4, y+28, 32, 8);
                             ctx.fillRect(x+4, y+4, 8, 32);
                             ctx.fillRect(x+28, y+4, 8, 32);
                             break;
-                        case 3: // дерево
+                        case 3:
                             ctx.fillStyle = '#5d3a1a';
                             ctx.fillRect(x+16, y+24, 8, 16);
                             ctx.fillStyle = '#2e7d32';
@@ -338,7 +537,7 @@
                             ctx.arc(x+20, y+18, 16, 0, Math.PI*2);
                             ctx.fill();
                             break;
-                        case 4: // колодец
+                        case 4:
                             ctx.fillStyle = '#6d6d6d';
                             ctx.fillRect(x+8, y+16, 24, 20);
                             ctx.fillStyle = '#4a4a4a';
@@ -346,7 +545,7 @@
                             ctx.fillStyle = '#8bb3d6';
                             ctx.fillRect(x+16, y+22, 8, 8);
                             break;
-                        case 5: // цветок
+                        case 5:
                             ctx.fillStyle = '#f7c6c6';
                             ctx.beginPath();
                             ctx.arc(x+20, y+20, 5, 0, Math.PI*2);
@@ -360,11 +559,10 @@
                 }
             }
 
-            // ---- Рисуем жителей ----
+            // Жители
             villagers.forEach(v => {
                 const x = v.x * TILE_SIZE + TILE_SIZE/2;
                 const y = v.y * TILE_SIZE + TILE_SIZE/2 - 4;
-                // тело (круг)
                 ctx.fillStyle = '#3d5a80';
                 ctx.beginPath();
                 ctx.arc(x, y-2, 14, 0, Math.PI*2);
@@ -375,22 +573,44 @@
                 ctx.fill();
                 ctx.arc(x+4, y-8, 4, 0, Math.PI*2);
                 ctx.fill();
-                // имя
                 ctx.fillStyle = '#1e2b1a';
                 ctx.font = 'bold 10px "Segoe UI", sans-serif';
                 ctx.textAlign = 'center';
                 ctx.fillText(v.name.substring(0,8), x, y-22);
-                // шляпа/волосы
                 ctx.fillStyle = '#8b5a2b';
                 ctx.beginPath();
                 ctx.arc(x, y-12, 8, 0, Math.PI);
                 ctx.fill();
             });
 
-            // ---- Рисуем игрока ----
+            // ---- ВОИН (спрайт) ----
+            const wx = warrior.x * TILE_SIZE;
+            const wy = warrior.y * TILE_SIZE;
+            let warriorSprite;
+            if (warrior.attacking) {
+                const idx = Math.floor(warrior.attackFrame / 5);
+                warriorSprite = warrior.attackSprites[Math.min(idx, warrior.attackSprites.length - 1)];
+            } else {
+                warriorSprite = warrior.sprites[warrior.dir] || warrior.sprites['down'];
+            }
+            if (warriorSprite) {
+                ctx.save();
+                ctx.imageSmoothingEnabled = false;
+                const scale = TILE_SIZE / 48;
+                ctx.drawImage(warriorSprite, wx, wy, TILE_SIZE, TILE_SIZE);
+                ctx.restore();
+                // Имя
+                ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                ctx.fillRect(wx + 4, wy - 14, 32, 12);
+                ctx.fillStyle = '#f1c40f';
+                ctx.font = '8px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('⚔️ Воин', wx + TILE_SIZE/2, wy - 4);
+            }
+
+            // ---- ИГРОК ----
             const px = player.x * TILE_SIZE + TILE_SIZE/2;
             const py = player.y * TILE_SIZE + TILE_SIZE/2 - 2;
-            // тело
             ctx.fillStyle = '#2b5e8a';
             ctx.beginPath();
             ctx.arc(px, py-2, 15, 0, Math.PI*2);
@@ -401,7 +621,6 @@
             ctx.fill();
             ctx.arc(px+5, py-8, 5, 0, Math.PI*2);
             ctx.fill();
-            // глаза
             ctx.fillStyle = '#1a1a1a';
             ctx.beginPath();
             ctx.arc(px-4, py-10, 2, 0, Math.PI*2);
@@ -409,22 +628,20 @@
             ctx.beginPath();
             ctx.arc(px+4, py-10, 2, 0, Math.PI*2);
             ctx.fill();
-            // меч (если есть)
             if (player.hasSword) {
                 ctx.fillStyle = '#c0c0c0';
                 ctx.fillRect(px+10, py-18, 4, 18);
                 ctx.fillStyle = '#f5d742';
                 ctx.fillRect(px+8, py-20, 8, 6);
             }
-            // красный плащ
             ctx.fillStyle = '#c0392b';
             ctx.beginPath();
             ctx.arc(px, py+8, 10, 0, Math.PI);
             ctx.fill();
 
-            // ---- Диалоговое окно ----
+            // ---- ДИАЛОГ ----
             if (dialogText) {
-                ctx.restore(); // временно отключаем трансформацию для UI
+                ctx.restore();
                 ctx.save();
                 ctx.shadowColor = 'rgba(0,0,0,0.5)';
                 ctx.shadowBlur = 12;
@@ -445,10 +662,10 @@
                 ctx.translate(-cameraX, -cameraY);
             }
 
-            ctx.restore(); // конец трансформации камеры
+            ctx.restore();
 
-            // ---- Декоративные линии сетки (очень слабо) ----
-            ctx.strokeStyle = 'rgba(0,0,0,0.08)';
+            // Сетка
+            ctx.strokeStyle = 'rgba(0,0,0,0.06)';
             ctx.lineWidth = 1;
             for (let i = 0; i <= MAP_COLS; i++) {
                 ctx.beginPath();
@@ -464,27 +681,14 @@
             }
         }
 
-        // ---- ОБНОВЛЕНИЕ ----
-        function update() {
-            if (dialogTimer > 0) {
-                dialogTimer--;
-                if (dialogTimer === 0) {
-                    dialogText = '';
-                }
-            }
-            // обновляем интерфейс
-            document.getElementById('hpDisplay').innerText = player.hp;
-            document.getElementById('atkDisplay').innerText = player.atk;
-        }
-
-        // ---- ЦИКЛ ----
+        // ---------- ЦИКЛ ----------
         function gameLoop() {
             update();
             draw();
             requestAnimationFrame(gameLoop);
         }
 
-        // ---- УПРАВЛЕНИЕ ----
+        // ---------- УПРАВЛЕНИЕ ----------
         function setupControls() {
             const btnUp = document.getElementById('btnUp');
             const btnDown = document.getElementById('btnDown');
@@ -503,7 +707,6 @@
             btnRight.addEventListener('click', (e) => { e.preventDefault(); moveHandler(1, 0); });
             btnAction.addEventListener('click', (e) => { e.preventDefault(); if (dialogTimer === 0) doAction(); });
 
-            // Клавиатура для ПК (дополнительно)
             document.addEventListener('keydown', (e) => {
                 if (dialogTimer > 0) return;
                 switch(e.key) {
@@ -516,7 +719,7 @@
             });
         }
 
-        // ---- ПОЛИФИЛ ДЛЯ roundRect ----
+        // Полифил roundRect
         if (!CanvasRenderingContext2D.prototype.roundRect) {
             CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
                 if (r > w/2) r = w/2;
@@ -530,12 +733,9 @@
             };
         }
 
-        // ---- ЗАПУСК ----
+        // ЗАПУСК
         setupControls();
-        // маленький привет
-        setTimeout(() => {
-            showDialog('🌿 Добро пожаловать в деревню!');
-        }, 500);
+        setTimeout(() => { showDialog('🌿 Добро пожаловать! Воин охраняет деревню.'); }, 400);
         gameLoop();
     })();
 </script>
