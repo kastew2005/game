@@ -32,6 +32,7 @@
             max-height: 100vh;
             width: auto;
             height: auto;
+            cursor: crosshair;
         }
         #ui-overlay {
             position: absolute;
@@ -56,6 +57,8 @@
             background: rgba(0,0,0,0.5);
             border-radius: 20px;
             backdrop-filter: blur(10px);
+            pointer-events: auto;
+            cursor: pointer;
         }
         #message.show {
             opacity: 1;
@@ -120,6 +123,11 @@
         let stars = [];
         let lastHitTime = 0;
         let messageTimeout = null;
+        
+        // === Прицел ===
+        let aimAngle = 0;
+        let aimDistance = 0;
+        let aimVisible = true;
 
         // === Звезды ===
         function initStars() {
@@ -284,6 +292,110 @@
             ctx.globalAlpha = 1;
         }
 
+        // === Отрисовка прицела ===
+        function drawAim() {
+            if (gameOver || victory || flying_knife) return;
+            
+            const center = LOG_CENTER();
+            const radius = LOG_RADIUS();
+            
+            // Получаем безопасный угол для прицела
+            const safeAngle = getSafeAngle();
+            const currentAngle = safeAngle + angle;
+            
+            // Позиция ножа на окружности
+            const dist = radius + 30;
+            const x = center.x + dist * Math.cos(currentAngle);
+            const y = center.y + dist * Math.sin(currentAngle);
+            
+            // Направление к центру
+            const dx = Math.cos(currentAngle);
+            const dy = Math.sin(currentAngle);
+            
+            // === Линия траектории ===
+            ctx.save();
+            
+            // Пунктирная линия от ножа до бревна
+            ctx.setLineDash([6, 8]);
+            ctx.lineDashOffset = -Date.now() / 50;
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            const endX = center.x + (radius + 2) * Math.cos(currentAngle);
+            const endY = center.y + (radius + 2) * Math.sin(currentAngle);
+            ctx.lineTo(endX, endY);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            
+            // === Вращающийся маркер ===
+            const pulse = Math.sin(Date.now() / 300) * 0.3 + 0.7;
+            
+            // Внешнее свечение
+            const glow = ctx.createRadialGradient(x, y, 0, x, y, 20 * pulse);
+            glow.addColorStop(0, 'rgba(255, 255, 100, 0.2)');
+            glow.addColorStop(1, 'rgba(255, 255, 100, 0)');
+            ctx.fillStyle = glow;
+            ctx.beginPath();
+            ctx.arc(x, y, 20 * pulse, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Основной круг
+            ctx.shadowColor = 'rgba(255, 255, 100, 0.5)';
+            ctx.shadowBlur = 20;
+            ctx.strokeStyle = `rgba(255, 255, 100, ${0.5 * pulse})`;
+            ctx.lineWidth = 2.5;
+            ctx.beginPath();
+            ctx.arc(x, y, 12 * pulse, 0, Math.PI * 2);
+            ctx.stroke();
+            
+            // Внутренний круг
+            ctx.shadowBlur = 10;
+            ctx.fillStyle = `rgba(255, 255, 100, ${0.3 * pulse})`;
+            ctx.beginPath();
+            ctx.arc(x, y, 6 * pulse, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Крестик
+            ctx.shadowBlur = 15;
+            ctx.strokeStyle = `rgba(255, 255, 255, ${0.7 * pulse})`;
+            ctx.lineWidth = 2;
+            const crossSize = 8 * pulse;
+            ctx.beginPath();
+            ctx.moveTo(x - crossSize, y);
+            ctx.lineTo(x + crossSize, y);
+            ctx.moveTo(x, y - crossSize);
+            ctx.lineTo(x, y + crossSize);
+            ctx.stroke();
+            
+            // Точка в центре
+            ctx.shadowBlur = 10;
+            ctx.fillStyle = `rgba(255, 255, 255, ${0.8 * pulse})`;
+            ctx.beginPath();
+            ctx.arc(x, y, 2, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Маленький нож-индикатор
+            ctx.shadowBlur = 5;
+            ctx.shadowColor = 'rgba(255,255,100,0.3)';
+            ctx.strokeStyle = `rgba(255, 255, 200, ${0.5 * pulse})`;
+            ctx.lineWidth = 2.5;
+            const bladeLen = 10;
+            const handleLen = 6;
+            ctx.beginPath();
+            ctx.moveTo(x - handleLen * dx, y - handleLen * dy);
+            ctx.lineTo(x, y);
+            ctx.stroke();
+            ctx.strokeStyle = `rgba(255, 200, 150, ${0.6 * pulse})`;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(x + bladeLen * dx, y + bladeLen * dy);
+            ctx.stroke();
+            
+            ctx.restore();
+        }
+
         function drawKnife(angle_rad, isFlying = false, flash = false) {
             const center = LOG_CENTER();
             const radius = LOG_RADIUS();
@@ -317,7 +429,6 @@
             // Лезвие
             ctx.shadowBlur = 12;
             if (isFlying) {
-                // Свечение для летящего
                 const glow = ctx.createRadialGradient(x, y, 0, x, y, bladeLen);
                 glow.addColorStop(0, 'rgba(255,100,50,0.3)');
                 glow.addColorStop(1, 'rgba(255,100,50,0)');
@@ -394,11 +505,9 @@
             
             ctx.save();
             
-            // Тень
             ctx.shadowColor = 'rgba(255,50,50,0.3)';
             ctx.shadowBlur = 30;
             
-            // Ручка
             ctx.shadowBlur = 10;
             ctx.strokeStyle = '#5a3d2b';
             ctx.lineWidth = Math.max(4, bladeLen / 6);
@@ -408,7 +517,6 @@
             ctx.lineTo(x, y);
             ctx.stroke();
 
-            // Лезвие
             ctx.shadowColor = 'rgba(255,50,50,0.8)';
             ctx.shadowBlur = 35;
             ctx.strokeStyle = '#ff3333';
@@ -418,7 +526,6 @@
             ctx.lineTo(x + bladeLen * dx, y + bladeLen * dy);
             ctx.stroke();
 
-            // Яркий блик
             ctx.shadowBlur = 0;
             ctx.globalAlpha = 0.6;
             ctx.strokeStyle = '#ffaa77';
@@ -433,7 +540,6 @@
         }
 
         function drawUI() {
-            const center = LOG_CENTER();
             const radius = LOG_RADIUS();
 
             // Полупрозрачный фон
@@ -492,12 +598,12 @@
                 const blink = Math.floor(Date.now() / 800) % 2;
                 if (blink) {
                     ctx.shadowBlur = 0;
-                    ctx.fillStyle = 'rgba(255,255,255,0.6)';
-                    ctx.font = `${Math.max(14, radius/6)}px 'Segoe UI', sans-serif`;
+                    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+                    ctx.font = `${Math.max(12, radius/7)}px 'Segoe UI', sans-serif`;
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'bottom';
                     const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-                    ctx.fillText(isMobile ? '👆 Нажми на экран' : 'Нажми SPACE или кликни', W()/2, H() - 15);
+                    ctx.fillText(isMobile ? '👆 Нажми на экран чтобы бросить' : 'Нажми SPACE или кликни', W()/2, H() - 15);
                 }
             }
 
@@ -601,6 +707,9 @@
             
             drawBackground();
             drawLog();
+            
+            // Рисуем прицел ПЕРЕД ножами на бревне
+            drawAim();
 
             // Ножи на бревне
             for (let i = 0; i < knives_on_log.length; i++) {
@@ -635,7 +744,6 @@
         }
 
         // === Управление ===
-        // Клавиатура
         document.addEventListener('keydown', (e) => {
             if (e.code === 'Space') {
                 e.preventDefault();
@@ -650,7 +758,6 @@
             }
         });
 
-        // Мышь / Тач
         function handlePointer(e) {
             e.preventDefault();
             if (gameOver || victory) {
@@ -688,14 +795,14 @@
         resetGame();
         gameLoop();
 
-        // Пересчет звезд при ресайзе
         window.addEventListener('resize', () => {
             resizeCanvas();
             initStars();
         });
 
-        console.log('🎯 Knife Hit загружен!');
+        console.log('🎯 Knife Hit с прицелом!');
         console.log('Управление: Space/Клик/Тап - бросок, R - рестарт');
+        console.log('🎯 Маркер показывает откуда прилетит нож');
     </script>
 </body>
 </html>
