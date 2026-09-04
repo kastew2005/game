@@ -1,0 +1,204 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+:root {
+    --primary: #4a8a3a;
+    --primary-dark: #2a5a2a;
+    --secondary: #8aba6a;
+    --bg-dark: #0a0f0a;
+    --bg-panel: rgba(10, 15, 10, 0.92);
+    --text-light: #e0e8d0;
+    --text-gold: #ffdd44;
+    --text-red: #ff4444;
+    --text-green: #44cc44;
+    --shadow: 0 20px 60px rgba(0,0,0,0.95);
+    --glass: rgba(255,255,255,0.05);
+}
+
+body {
+    background: var(--bg-dark);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    touch-action: none;
+    overflow: hidden;
+    position: fixed;
+    width: 100%;
+    height: 100%;
+}
+
+#game-wrapper {
+    background: #1a241a;
+    border-radius: 24px;
+    padding: 8px;
+    box-shadow: var(--shadow);
+    width: fit-content;
+    max-width: 99vw;
+    max-height: 99vh;
+    position: relative;
+}
+
+#game-wrapper canvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    background: #2d4a2d;
+    border-radius: 18px;
+    box-shadow: inset 0 0 0 2px #4a6a4a, 0 10px 40px rgba(0,0,0,0.8);
+    touch-action: none;
+    cursor: crosshair;
+    aspect-ratio: 16 / 9;
+    max-width: 1600px;
+    max-height: 90vh;
+    margin: 0 auto;
+}
+
+/* Loading Screen */
+#loading-screen {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: var(--bg-dark);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    border-radius: 18px;
+    z-index: 100;
+    transition: opacity 0.8s ease;
+}
+
+#loading-screen.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.loading-content {
+    text-align: center;
+    padding: 40px;
+    max-width: 600px;
+}
+
+.loading-content h1 {
+    color: #8a9a7a;
+    font-size: 4rem;
+    font-weight: 700;
+    text-shadow: 0 0 40px rgba(138, 154, 122, 0.3);
+    margin-bottom: 10px;
+    letter-spacing: 4px;
+}
+
+.loading-content h2 {
+    color: #b0c8a0;
+    font-size: 2.2rem;
+    font-weight: 400;
+    margin-bottom: 40px;
+    letter-spacing: 8px;
+}
+
+.progress-bar {
+    width: 360px;
+    height: 28px;
+    background: #2a3a2a;
+    border-radius: 14px;
+    overflow: hidden;
+    margin: 0 auto 20px;
+    box-shadow: inset 0 2px 8px rgba(0,0,0,0.5);
+}
+
+.progress-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--primary-dark), var(--secondary));
+    border-radius: 14px;
+    transition: width 0.3s ease;
+    box-shadow: 0 0 20px rgba(138, 186, 106, 0.3);
+}
+
+.loading-text {
+    color: #8a9a7a;
+    font-size: 1rem;
+    letter-spacing: 2px;
+}
+
+.loading-tips {
+    margin-top: 30px;
+    color: #6a8a5a;
+    font-size: 0.9rem;
+    min-height: 30px;
+    padding: 0 20px;
+}
+
+.loading-version {
+    margin-top: 20px;
+    color: #4a5a4a;
+    font-size: 0.8rem;
+    letter-spacing: 2px;
+}
+
+/* Toast Notifications */
+.toast-container {
+    position: absolute;
+    bottom: 100px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 50;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+.toast {
+    background: rgba(0,0,0,0.85);
+    color: var(--text-light);
+    padding: 12px 28px;
+    border-radius: 12px;
+    font-size: 16px;
+    opacity: 0;
+    transform: translateY(20px);
+    transition: all 0.4s ease;
+    border-left: 4px solid var(--secondary);
+    pointer-events: none;
+    white-space: nowrap;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    max-width: 90vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.toast.show {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.toast.success { border-left-color: #44cc44; }
+.toast.error { border-left-color: #cc4444; }
+.toast.warning { border-left-color: #cccc44; }
+.toast.info { border-left-color: #44aacc; }
+.toast.special { border-left-color: #cc44cc; }
+.toast.quest { border-left-color: #ffdd44; }
+
+/* Responsive */
+@media (max-width: 768px) {
+    .loading-content h1 { font-size: 2.5rem; }
+    .loading-content h2 { font-size: 1.5rem; }
+    .progress-bar { width: 260px; height: 22px; }
+    .toast { font-size: 14px; padding: 10px 20px; }
+    .loading-tips { font-size: 0.8rem; }
+}
+
+@media (orientation: portrait) {
+    #game-wrapper { padding: 4px; border-radius: 12px; }
+    #game-wrapper canvas { border-radius: 10px; }
+}
