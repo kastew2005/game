@@ -13,164 +13,205 @@
             -webkit-tap-highlight-color: transparent;
         }
         body {
-            background: #0a0d0a;
+            background: #080b08;
             display: flex;
             justify-content: center;
             align-items: center;
             min-height: 100vh;
             font-family: 'Segoe UI', system-ui, sans-serif;
-            touch-action: pan-y;
+            touch-action: none;
+            overflow: hidden;
+            position: fixed;
+            width: 100%;
+            height: 100%;
         }
         #game-wrapper {
-            background: #1f2a1f;
-            border-radius: 28px;
-            padding: 10px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.9);
+            background: #1a241a;
+            border-radius: 24px;
+            padding: 8px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.95);
             width: fit-content;
-            max-width: 98vw;
+            max-width: 99vw;
+            max-height: 99vh;
         }
         canvas {
             display: block;
             width: 100%;
             height: auto;
-            background: #4a6b4a;
-            border-radius: 20px;
-            box-shadow: inset 0 0 0 2px #5b7a5a, 0 10px 30px rgba(0,0,0,0.7);
+            background: #2d4a2d;
+            border-radius: 18px;
+            box-shadow: inset 0 0 0 2px #4a6a4a, 0 10px 40px rgba(0,0,0,0.8);
             touch-action: none;
             cursor: crosshair;
             aspect-ratio: 16 / 9;
-            max-width: 900px;
+            max-width: 1000px;
+            max-height: 90vh;
             margin: 0 auto;
-        }
-        @media (orientation: portrait) {
-            #game-wrapper { padding: 6px; border-radius: 16px; }
         }
     </style>
 </head>
 <body>
 <div id="game-wrapper">
-    <canvas id="gameCanvas" width="1000" height="562"></canvas>
+    <canvas id="gameCanvas" width="1200" height="675"></canvas>
 </div>
 <script>
     (function(){
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
-        const W = 1000, H = 562;
+        const W = 1200, H = 675;
 
-        // ---- Глобальные состояния ----
-        let gameState = 'loading'; // loading, menu, playing
+        // ---- Состояния ----
+        let gameState = 'loading';
         let loadingProgress = 0;
 
-        // Игрок (улучшенный)
+        // ---- Игрок (реалистичный) ----
         const player = {
-            x: 500, y: 300,
-            radius: 16,
+            x: 600, y: 400,
+            radius: 18,
             health: 100,
             maxHealth: 100,
-            energy: 80,
-            hunger: 75,
-            thirst: 70,
+            energy: 100,
+            hunger: 80,
+            thirst: 75,
             attackCooldown: 0,
             direction: 0,
-            speed: 2.2,
+            speed: 2.4,
             animFrame: 0,
             animTimer: 0,
             inBush: false,
+            stamina: 100,
+            staminaRegen: 0,
+            experience: 0,
+            level: 1,
+            kills: 0,
         };
 
-        // Зомби
+        // ---- Зомби ----
         let zombies = [];
-        const MAX_ZOMBIES = 10;
+        const MAX_ZOMBIES = 12;
 
-        // Лут
+        // ---- Лут ----
         let lootItems = [];
 
-        // Объекты мира (деревья, кусты)
+        // ---- Мир ----
         let worldObjects = [];
+        let particles = [];
+        let damageNumbers = [];
 
-        // Джойстик
+        // ---- Мультитач джойстики ----
+        const touches = {
+            joystick: null,
+            buttons: new Map(),
+        };
+
         const joystick = {
             active: false,
             startX: 0, startY: 0,
             deltaX: 0, deltaY: 0,
-            pointerId: null
+            pointerId: null,
         };
 
-        // Кнопки UI (улучшенные)
+        // ---- Кнопки ----
         const buttons = {
-            attack: { x: 880, y: 430, radius: 44, label: '⚔️' },
-            loot:   { x: 780, y: 430, radius: 40, label: '📦' },
-            craft:  { x: 680, y: 430, radius: 40, label: '🔧' },
-            map:    { x: 70, y: 70, radius: 34, label: '🗺️' },
-            menu:   { x: 160, y: 70, radius: 34, label: '☰' },
+            attack: { x: 1050, y: 520, radius: 50, label: '⚔️', cooldown: 0, maxCooldown: 18 },
+            loot:   { x: 930, y: 520, radius: 44, label: '📦' },
+            craft:  { x: 810, y: 520, radius: 44, label: '🔧' },
+            map:    { x: 80, y: 80, radius: 38, label: '🗺️' },
+            menu:   { x: 180, y: 80, radius: 38, label: '☰' },
+            sprint: { x: 300, y: 560, radius: 40, label: '🏃', active: false },
         };
 
-        // Меню
+        // ---- Меню ----
         let menuOpen = false;
         let showCraft = false;
+        let showMap = false;
         let inventory = {
-            wood: 18,
-            stone: 12,
-            scrap: 6,
-            food: 5,
-            water: 4,
-            medkit: 1,
+            wood: 25,
+            stone: 18,
+            scrap: 10,
+            food: 8,
+            water: 6,
+            medkit: 2,
+            ammunition: 5,
         };
 
-        // Таймеры
+        // ---- Мир ----
         let gameTick = 0;
         let zombieSpawnTimer = 0;
         let cameraX = 0, cameraY = 0;
-        const WORLD_SIZE = 2000;
+        const WORLD_SIZE = 3000;
+        let weather = 'clear';
+        let timeOfDay = 0;
 
         // ---- Генерация мира ----
         function generateWorld() {
             worldObjects = [];
             // Деревья
-            for (let i = 0; i < 65; i++) {
-                let x = 80 + Math.random() * (WORLD_SIZE - 160);
-                let y = 80 + Math.random() * (WORLD_SIZE - 160);
-                let size = 22 + Math.random() * 18;
+            for (let i = 0; i < 80; i++) {
+                let x = 100 + Math.random() * (WORLD_SIZE - 200);
+                let y = 100 + Math.random() * (WORLD_SIZE - 200);
+                let size = 25 + Math.random() * 25;
                 worldObjects.push({
                     type: 'tree',
                     x, y,
                     radius: size,
-                    shadow: 12,
-                    health: 20,
+                    shadow: 15,
+                    health: 30,
+                    variant: Math.floor(Math.random() * 3),
                 });
             }
-            // Кусты (в них можно прятаться)
-            for (let i = 0; i < 45; i++) {
-                let x = 60 + Math.random() * (WORLD_SIZE - 120);
-                let y = 60 + Math.random() * (WORLD_SIZE - 120);
+            // Кусты
+            for (let i = 0; i < 55; i++) {
+                let x = 80 + Math.random() * (WORLD_SIZE - 160);
+                let y = 80 + Math.random() * (WORLD_SIZE - 160);
                 worldObjects.push({
                     type: 'bush',
                     x, y,
-                    radius: 18 + Math.random() * 14,
-                    shadow: 8,
+                    radius: 20 + Math.random() * 16,
+                    shadow: 10,
+                    variant: Math.floor(Math.random() * 2),
+                });
+            }
+            // Камни
+            for (let i = 0; i < 30; i++) {
+                let x = 60 + Math.random() * (WORLD_SIZE - 120);
+                let y = 60 + Math.random() * (WORLD_SIZE - 120);
+                worldObjects.push({
+                    type: 'rock',
+                    x, y,
+                    radius: 15 + Math.random() * 20,
+                    variant: Math.floor(Math.random() * 2),
                 });
             }
         }
 
         // ---- Инициализация ----
         function initGame() {
-            player.x = 500; player.y = 400;
+            player.x = 600; player.y = 400;
             player.health = 100;
-            player.energy = 80;
-            player.hunger = 75;
-            player.thirst = 70;
+            player.energy = 100;
+            player.hunger = 80;
+            player.thirst = 75;
             player.attackCooldown = 0;
+            player.stamina = 100;
+            player.experience = 0;
+            player.level = 1;
+            player.kills = 0;
             zombies = [];
             lootItems = [];
-            inventory = { wood: 18, stone: 12, scrap: 6, food: 5, water: 4, medkit: 1 };
+            particles = [];
+            damageNumbers = [];
+            inventory = { wood: 25, stone: 18, scrap: 10, food: 8, water: 6, medkit: 2, ammunition: 5 };
             menuOpen = false;
             showCraft = false;
+            showMap = false;
             gameTick = 0;
             zombieSpawnTimer = 0;
             generateWorld();
-            for (let i=0; i<5; i++) spawnZombie();
+            for (let i=0; i<6; i++) spawnZombie();
             cameraX = player.x - W/2;
             cameraY = player.y - H/2;
+            buttons.sprint.active = false;
         }
 
         // ---- Спавн зомби ----
@@ -178,155 +219,204 @@
             if (zombies.length >= MAX_ZOMBIES) return;
             let side = Math.floor(Math.random() * 4);
             let x, y;
-            const pad = 80;
+            const pad = 100;
             switch(side) {
                 case 0: x = pad; y = Math.random() * (WORLD_SIZE - pad*2) + pad; break;
                 case 1: x = WORLD_SIZE - pad; y = Math.random() * (WORLD_SIZE - pad*2) + pad; break;
                 case 2: x = Math.random() * (WORLD_SIZE - pad*2) + pad; y = pad; break;
                 case 3: x = Math.random() * (WORLD_SIZE - pad*2) + pad; y = WORLD_SIZE - pad; break;
             }
-            if (Math.hypot(x - player.x, y - player.y) < 150) return;
+            if (Math.hypot(x - player.x, y - player.y) < 200) return;
+            
+            const types = ['walker', 'runner', 'tank'];
+            const weights = [0.5, 0.3, 0.2];
+            let type = 'walker';
+            let r = Math.random();
+            if (r < 0.5) type = 'walker';
+            else if (r < 0.8) type = 'runner';
+            else type = 'tank';
+            
+            const health = type === 'walker' ? 50 + Math.random() * 20 : 
+                           type === 'runner' ? 40 + Math.random() * 15 : 
+                           80 + Math.random() * 30;
+            
             zombies.push({
                 x, y,
-                radius: 18,
-                health: 50 + Math.floor(Math.random() * 30),
-                maxHealth: 80,
-                speed: 0.8 + Math.random() * 0.7,
+                radius: type === 'tank' ? 24 : 18,
+                health: health,
+                maxHealth: health,
+                speed: type === 'walker' ? 0.7 + Math.random() * 0.3 : 
+                       type === 'runner' ? 1.4 + Math.random() * 0.4 : 
+                       0.5 + Math.random() * 0.2,
                 attackCooldown: 0,
-                type: Math.random() > 0.7 ? 'runner' : 'walker',
+                type: type,
                 animFrame: 0,
                 animTimer: 0,
+                attackDamage: type === 'tank' ? 12 : type === 'runner' ? 8 : 6,
+                state: 'idle',
+                aggroRange: type === 'runner' ? 400 : 250,
+            });
+        }
+
+        // ---- Частицы ----
+        function createParticles(x, y, count, color, speed, life) {
+            for (let i=0; i<count; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const spd = Math.random() * speed;
+                particles.push({
+                    x, y,
+                    vx: Math.cos(angle) * spd,
+                    vy: Math.sin(angle) * spd,
+                    life: life || 30,
+                    maxLife: life || 30,
+                    radius: 2 + Math.random() * 4,
+                    color: color || '#ffaa44',
+                    decay: 0.95 + Math.random() * 0.04,
+                });
+            }
+        }
+
+        function addDamageNumber(x, y, value, color) {
+            damageNumbers.push({
+                x, y,
+                value: value,
+                color: color || '#ff4444',
+                life: 40,
+                vy: -2,
+                size: 24 + Math.random() * 8,
             });
         }
 
         // ---- Лут ----
         function dropLoot(x, y) {
-            const types = ['wood', 'stone', 'scrap', 'food', 'water'];
-            const count = 2 + Math.floor(Math.random() * 3);
+            const types = ['wood', 'stone', 'scrap', 'food', 'water', 'ammunition'];
+            const weights = [0.25, 0.2, 0.15, 0.15, 0.15, 0.1];
+            const count = 2 + Math.floor(Math.random() * 4);
             for (let i=0; i<count; i++) {
-                const type = types[Math.floor(Math.random() * types.length)];
+                let r = Math.random();
+                let type = types[0];
+                let cum = 0;
+                for (let j=0; j<types.length; j++) {
+                    cum += weights[j];
+                    if (r < cum) { type = types[j]; break; }
+                }
                 lootItems.push({
-                    x: x + (Math.random() - 0.5) * 60,
-                    y: y + (Math.random() - 0.5) * 60,
+                    x: x + (Math.random() - 0.5) * 70,
+                    y: y + (Math.random() - 0.5) * 70,
                     type: type,
-                    radius: 12,
-                    life: 800,
+                    radius: 14,
+                    life: 900,
                     bob: Math.random() * Math.PI * 2,
+                    glow: 0,
                 });
             }
+            createParticles(x, y, 15, '#ffdd44', 4, 20);
         }
 
-        // ---- Ввод ----
+        // ---- Ввод (мультитач) ----
         function handlePointerDown(e) {
             e.preventDefault();
             const rect = canvas.getBoundingClientRect();
             const scaleX = canvas.width / rect.width;
             const scaleY = canvas.height / rect.height;
-            let clientX, clientY, pointerId;
-            if (e.touches) {
-                clientX = e.touches[0].clientX;
-                clientY = e.touches[0].clientY;
-                pointerId = e.touches[0].identifier;
-            } else {
-                clientX = e.clientX;
-                clientY = e.clientY;
-                pointerId = 1;
-            }
-            const canvasX = (clientX - rect.left) * scaleX;
-            const canvasY = (clientY - rect.top) * scaleY;
+            const touches_list = e.touches || [{ clientX: e.clientX, clientY: e.clientY, identifier: 1 }];
+            
+            for (let touch of touches_list) {
+                const canvasX = (touch.clientX - rect.left) * scaleX;
+                const canvasY = (touch.clientY - rect.top) * scaleY;
+                const id = touch.identifier || 1;
 
-            if (gameState === 'menu') {
-                if (canvasX > 350 && canvasX < 650 && canvasY > 250 && canvasY < 330) {
-                    gameState = 'playing';
-                    initGame();
-                }
-                return;
-            }
-
-            if (gameState === 'playing') {
-                if (checkButtonHit(canvasX, canvasY, buttons.menu)) {
-                    menuOpen = !menuOpen;
-                    showCraft = false;
-                    return;
-                }
-                if (checkButtonHit(canvasX, canvasY, buttons.map)) { return; }
-                if (checkButtonHit(canvasX, canvasY, buttons.craft)) {
-                    showCraft = !showCraft;
-                    menuOpen = true;
-                    return;
-                }
-                if (checkButtonHit(canvasX, canvasY, buttons.attack)) {
-                    if (player.attackCooldown <= 0) {
-                        attackNearby();
-                        player.attackCooldown = 18;
+                if (gameState === 'menu') {
+                    if (canvasX > 400 && canvasX < 800 && canvasY > 280 && canvasY < 370) {
+                        gameState = 'playing';
+                        initGame();
                     }
                     return;
                 }
-                if (checkButtonHit(canvasX, canvasY, buttons.loot)) {
-                    collectLoot();
-                    return;
-                }
 
-                if (menuOpen) {
-                    handleMenuClick(canvasX, canvasY);
-                    return;
-                }
+                if (gameState === 'playing') {
+                    // Кнопки
+                    let hitButton = false;
+                    for (let key in buttons) {
+                        const btn = buttons[key];
+                        if (Math.hypot(canvasX - btn.x, canvasY - btn.y) < btn.radius + 10) {
+                            hitButton = true;
+                            touches.buttons.set(id, key);
+                            handleButtonPress(key);
+                            break;
+                        }
+                    }
+                    if (hitButton) continue;
 
-                if (canvasX < 450) {
-                    joystick.active = true;
-                    joystick.startX = canvasX;
-                    joystick.startY = canvasY;
-                    joystick.deltaX = 0;
-                    joystick.deltaY = 0;
-                    joystick.pointerId = pointerId;
+                    // Меню
+                    if (menuOpen) {
+                        handleMenuClick(canvasX, canvasY);
+                        continue;
+                    }
+
+                    // Джойстик (левая половина)
+                    if (canvasX < 500 && !joystick.active) {
+                        joystick.active = true;
+                        joystick.startX = canvasX;
+                        joystick.startY = canvasY;
+                        joystick.deltaX = 0;
+                        joystick.deltaY = 0;
+                        joystick.pointerId = id;
+                    }
                 }
             }
         }
 
         function handlePointerMove(e) {
             e.preventDefault();
-            if (!joystick.active) return;
             const rect = canvas.getBoundingClientRect();
             const scaleX = canvas.width / rect.width;
             const scaleY = canvas.height / rect.height;
-            let clientX, clientY;
-            if (e.touches) {
-                let found = false;
-                for (let t of e.touches) {
-                    if (t.identifier === joystick.pointerId) {
-                        clientX = t.clientX; clientY = t.clientY;
-                        found = true; break;
-                    }
-                }
-                if (!found) return;
-            } else {
-                clientX = e.clientX; clientY = e.clientY;
-            }
-            const canvasX = (clientX - rect.left) * scaleX;
-            const canvasY = (clientY - rect.top) * scaleY;
+            const touches_list = e.touches || [{ clientX: e.clientX, clientY: e.clientY, identifier: 1 }];
 
-            let dx = canvasX - joystick.startX;
-            let dy = canvasY - joystick.startY;
-            const maxDist = 70;
-            const dist = Math.hypot(dx, dy);
-            if (dist > maxDist) { dx = dx/dist*maxDist; dy = dy/dist*maxDist; }
-            joystick.deltaX = dx;
-            joystick.deltaY = dy;
+            for (let touch of touches_list) {
+                const canvasX = (touch.clientX - rect.left) * scaleX;
+                const canvasY = (touch.clientY - rect.top) * scaleY;
+                const id = touch.identifier || 1;
+
+                // Джойстик
+                if (joystick.active && joystick.pointerId === id) {
+                    let dx = canvasX - joystick.startX;
+                    let dy = canvasY - joystick.startY;
+                    const maxDist = 80;
+                    const dist = Math.hypot(dx, dy);
+                    if (dist > maxDist) { dx = dx/dist*maxDist; dy = dy/dist*maxDist; }
+                    joystick.deltaX = dx;
+                    joystick.deltaY = dy;
+                }
+            }
         }
 
         function handlePointerUp(e) {
             e.preventDefault();
+            const touches_list = e.touches || [{ clientX: 0, clientY: 0, identifier: 1 }];
+            
             if (e.touches) {
-                if (joystick.pointerId !== null) {
-                    let stillActive = false;
+                // Проверяем, остались ли пальцы на джойстике
+                let joystickStillActive = false;
+                for (let t of e.touches) {
+                    if (t.identifier === joystick.pointerId) joystickStillActive = true;
+                }
+                if (!joystickStillActive) {
+                    joystick.active = false;
+                    joystick.deltaX = 0;
+                    joystick.deltaY = 0;
+                    joystick.pointerId = null;
+                }
+                // Удаляем отпущенные кнопки
+                for (let [id, key] of touches.buttons) {
+                    let stillPressed = false;
                     for (let t of e.touches) {
-                        if (t.identifier === joystick.pointerId) stillActive = true;
+                        if (t.identifier === id) stillPressed = true;
                     }
-                    if (!stillActive) {
-                        joystick.active = false;
-                        joystick.deltaX = 0;
-                        joystick.deltaY = 0;
-                        joystick.pointerId = null;
+                    if (!stillPressed) {
+                        touches.buttons.delete(id);
+                        if (key === 'sprint') buttons.sprint.active = false;
                     }
                 }
             } else {
@@ -334,52 +424,103 @@
                 joystick.deltaX = 0;
                 joystick.deltaY = 0;
                 joystick.pointerId = null;
+                touches.buttons.clear();
+                buttons.sprint.active = false;
             }
         }
 
-        function checkButtonHit(cx, cy, btn) {
-            return Math.hypot(cx - btn.x, cy - btn.y) < btn.radius;
+        // ---- Обработка кнопок ----
+        function handleButtonPress(key) {
+            if (key === 'attack') {
+                if (player.attackCooldown <= 0) {
+                    attackNearby();
+                    player.attackCooldown = 18;
+                }
+            } else if (key === 'loot') {
+                collectLoot();
+            } else if (key === 'craft') {
+                showCraft = !showCraft;
+                menuOpen = true;
+                showMap = false;
+            } else if (key === 'map') {
+                showMap = !showMap;
+                menuOpen = showMap;
+                showCraft = false;
+            } else if (key === 'menu') {
+                menuOpen = !menuOpen;
+                if (!menuOpen) { showCraft = false; showMap = false; }
+            } else if (key === 'sprint') {
+                buttons.sprint.active = !buttons.sprint.active;
+            }
         }
 
-        // ---- Меню ----
+        // ---- Меню клики ----
         function handleMenuClick(cx, cy) {
             if (showCraft) {
                 // Аптечка
-                if (cx > 350 && cx < 650 && cy > 180 && cy < 240) {
-                    if (inventory.wood >= 4 && inventory.scrap >= 3) {
-                        inventory.wood -= 4;
+                if (cx > 300 && cx < 900 && cy > 150 && cy < 220) {
+                    if (inventory.wood >= 5 && inventory.scrap >= 3) {
+                        inventory.wood -= 5;
                         inventory.scrap -= 3;
                         inventory.medkit = (inventory.medkit || 0) + 1;
+                        createParticles(cx, cy, 20, '#44ff88', 5, 25);
+                    }
+                }
+                // Патроны
+                if (cx > 300 && cx < 900 && cy > 240 && cy < 310) {
+                    if (inventory.scrap >= 4 && inventory.stone >= 2) {
+                        inventory.scrap -= 4;
+                        inventory.stone -= 2;
+                        inventory.ammunition = (inventory.ammunition || 0) + 5;
                     }
                 }
                 // Еда
-                if (cx > 350 && cx < 650 && cy > 260 && cy < 320) {
+                if (cx > 300 && cx < 900 && cy > 330 && cy < 400) {
                     if (inventory.food >= 2 && inventory.water >= 2) {
                         inventory.food -= 2;
                         inventory.water -= 2;
-                        inventory.food += 3; // улучшенная еда
+                        inventory.food += 4;
                     }
+                }
+                // Закрыть
+                if (cx > W/2-80 && cx < W/2+80 && cy > 580 && cy < 620) {
+                    menuOpen = false;
+                    showCraft = false;
+                    showMap = false;
                 }
                 return;
             }
+
+            if (showMap) {
+                if (cx > W/2-80 && cx < W/2+80 && cy > 580 && cy < 620) {
+                    menuOpen = false;
+                    showMap = false;
+                }
+                return;
+            }
+
             // Инвентарь
-            if (cx > 100 && cx < 350 && cy > 120 && cy < 200) {
-                if (inventory.food > 0) {
-                    inventory.food--;
-                    player.hunger = Math.min(100, player.hunger + 20);
-                    player.health = Math.min(player.maxHealth, player.health + 8);
-                }
-            }
-            if (cx > 100 && cx < 350 && cy > 220 && cy < 300) {
-                if (inventory.water > 0) {
-                    inventory.water--;
-                    player.thirst = Math.min(100, player.thirst + 20);
-                }
-            }
-            if (cx > 100 && cx < 350 && cy > 320 && cy < 400) {
-                if (inventory.medkit > 0) {
-                    inventory.medkit--;
-                    player.health = Math.min(player.maxHealth, player.health + 40);
+            const items = [
+                { key: 'food', label: '🍖 Еда', y: 140 },
+                { key: 'water', label: '💧 Вода', y: 210 },
+                { key: 'medkit', label: '💊 Аптечка', y: 280 },
+            ];
+            for (let item of items) {
+                if (cx > 100 && cx < 500 && cy > item.y - 20 && cy < item.y + 40) {
+                    if (item.key === 'food' && inventory.food > 0) {
+                        inventory.food--;
+                        player.hunger = Math.min(100, player.hunger + 25);
+                        player.health = Math.min(player.maxHealth, player.health + 10);
+                        createParticles(cx, cy, 15, '#ff8844', 3, 20);
+                    } else if (item.key === 'water' && inventory.water > 0) {
+                        inventory.water--;
+                        player.thirst = Math.min(100, player.thirst + 25);
+                        createParticles(cx, cy, 15, '#44aaff', 3, 20);
+                    } else if (item.key === 'medkit' && inventory.medkit > 0) {
+                        inventory.medkit--;
+                        player.health = Math.min(player.maxHealth, player.health + 50);
+                        createParticles(cx, cy, 25, '#44ff88', 5, 30);
+                    }
                 }
             }
         }
@@ -387,33 +528,56 @@
         // ---- Атака ----
         function attackNearby() {
             let closest = null;
-            let minDist = 80;
+            let minDist = 90;
             for (let z of zombies) {
                 const d = Math.hypot(z.x - player.x, z.y - player.y);
                 if (d < minDist) { minDist = d; closest = z; }
             }
             if (closest) {
-                closest.health -= 25 + Math.floor(Math.random() * 12);
+                const damage = 20 + Math.floor(Math.random() * 15) + (player.level * 2);
+                closest.health -= damage;
+                addDamageNumber(closest.x, closest.y - 30, `-${damage}`, '#ff6644');
+                createParticles(closest.x, closest.y, 12, '#ff4444', 4, 15);
                 if (closest.health <= 0) {
                     const idx = zombies.indexOf(closest);
                     if (idx !== -1) {
                         dropLoot(closest.x, closest.y);
                         zombies.splice(idx, 1);
+                        player.kills++;
+                        player.experience += 10 + Math.floor(Math.random() * 5);
+                        if (player.experience >= player.level * 25) {
+                            player.experience = 0;
+                            player.level++;
+                            player.maxHealth += 5;
+                            player.health = Math.min(player.health + 20, player.maxHealth);
+                            addDamageNumber(player.x, player.y - 50, 'LEVEL UP!', '#44ff88');
+                        }
                     }
                 }
+            } else {
+                // Атака в воздух
+                createParticles(player.x + Math.cos(player.direction) * 40, 
+                               player.y + Math.sin(player.direction) * 40, 
+                               8, '#ffaa44', 3, 10);
             }
         }
 
         // ---- Сбор лута ----
         function collectLoot() {
+            let collected = 0;
             for (let i = lootItems.length - 1; i >= 0; i--) {
                 const item = lootItems[i];
-                if (Math.hypot(item.x - player.x, item.y - player.y) < 60) {
+                if (Math.hypot(item.x - player.x, item.y - player.y) < 70) {
                     if (inventory.hasOwnProperty(item.type)) {
                         inventory[item.type] = (inventory[item.type] || 0) + 1;
+                        collected++;
+                        createParticles(item.x, item.y, 10, '#ffdd44', 3, 15);
                     }
                     lootItems.splice(i, 1);
                 }
+            }
+            if (collected > 0) {
+                addDamageNumber(player.x, player.y - 40, `+${collected} предметов`, '#44ddff');
             }
         }
 
@@ -421,45 +585,57 @@
         function updateGame() {
             if (gameState !== 'playing') return;
             gameTick++;
+            timeOfDay += 0.002;
 
             // Регенерация
-            if (gameTick % 30 === 0 && player.health < player.maxHealth && player.hunger > 15 && player.thirst > 15) {
-                player.health = Math.min(player.maxHealth, player.health + 1);
+            if (gameTick % 25 === 0 && player.health < player.maxHealth && player.hunger > 15 && player.thirst > 15) {
+                player.health = Math.min(player.maxHealth, player.health + 1.5);
+            }
+            if (gameTick % 15 === 0 && player.stamina < 100) {
+                player.stamina = Math.min(100, player.stamina + 1);
             }
 
             // Голод/жажда
-            if (gameTick % 100 === 0) {
-                player.hunger = Math.max(0, player.hunger - 2);
-                player.thirst = Math.max(0, player.thirst - 3);
+            if (gameTick % 90 === 0) {
+                player.hunger = Math.max(0, player.hunger - 1.5);
+                player.thirst = Math.max(0, player.thirst - 2);
                 if (player.hunger === 0 || player.thirst === 0) {
                     player.health = Math.max(0, player.health - 3);
                 }
             }
 
-            // Движение игрока
+            // Движение
             player.inBush = false;
+            let moving = false;
             if (joystick.active) {
                 let dx = joystick.deltaX;
                 let dy = joystick.deltaY;
                 const len = Math.hypot(dx, dy);
-                if (len > 8) {
+                if (len > 10) {
+                    moving = true;
                     const normX = dx / len;
                     const normY = dy / len;
-                    player.x += normX * player.speed;
-                    player.y += normY * player.speed;
+                    let speed = player.speed;
+                    if (buttons.sprint.active && player.stamina > 5) {
+                        speed *= 1.6;
+                        player.stamina = Math.max(0, player.stamina - 0.8);
+                    } else if (buttons.sprint.active && player.stamina <= 5) {
+                        buttons.sprint.active = false;
+                    }
+                    player.x += normX * speed;
+                    player.y += normY * speed;
                     player.direction = Math.atan2(dy, dx);
                     player.animTimer++;
-                    if (player.animTimer > 10) {
+                    if (player.animTimer > 8) {
                         player.animTimer = 0;
                         player.animFrame = (player.animFrame + 1) % 4;
                     }
-                    // Ограничение мира
                     player.x = Math.max(20, Math.min(WORLD_SIZE - 20, player.x));
                     player.y = Math.max(20, Math.min(WORLD_SIZE - 20, player.y));
 
-                    // Проверка кустов
+                    // Кусты
                     for (let obj of worldObjects) {
-                        if (obj.type === 'bush' && Math.hypot(player.x - obj.x, player.y - obj.y) < obj.radius + 8) {
+                        if (obj.type === 'bush' && Math.hypot(player.x - obj.x, player.y - obj.y) < obj.radius + 10) {
                             player.inBush = true;
                             break;
                         }
@@ -467,29 +643,43 @@
                 }
             }
 
-            // Камера
-            cameraX = player.x - W/2;
-            cameraY = player.y - H/2;
+            // Камера (плавная)
+            const targetCX = player.x - W/2;
+            const targetCY = player.y - H/2;
+            cameraX += (targetCX - cameraX) * 0.08;
+            cameraY += (targetCY - cameraY) * 0.08;
             cameraX = Math.max(0, Math.min(WORLD_SIZE - W, cameraX));
             cameraY = Math.max(0, Math.min(WORLD_SIZE - H, cameraY));
 
-            // Атака кулдаун
+            // Кулдаун атаки
             if (player.attackCooldown > 0) player.attackCooldown--;
 
-            // Зомби AI
+            // Зомби
             for (let z of zombies) {
                 const dx = player.x - z.x;
                 const dy = player.y - z.y;
                 const dist = Math.hypot(dx, dy);
-                if (dist < 300) {
-                    const move = z.speed * (z.type === 'runner' ? 1.3 : 0.9);
+                
+                if (dist < z.aggroRange) {
+                    const move = z.speed * (z.type === 'runner' ? 1.4 : z.type === 'tank' ? 0.7 : 1);
                     z.x += (dx / dist) * move;
                     z.y += (dy / dist) * move;
                     z.animTimer++;
-                    if (z.animTimer > 8) { z.animTimer = 0; z.animFrame = (z.animFrame + 1) % 4; }
-                    if (dist < 32 && z.attackCooldown <= 0) {
-                        player.health -= 7 + Math.floor(Math.random() * 6);
-                        z.attackCooldown = 35;
+                    if (z.animTimer > 10) { z.animTimer = 0; z.animFrame = (z.animFrame + 1) % 4; }
+                    
+                    if (dist < 35 && z.attackCooldown <= 0) {
+                        const damage = z.attackDamage + Math.floor(Math.random() * 4);
+                        player.health -= damage;
+                        addDamageNumber(player.x, player.y - 30, `-${damage}`, '#ff4444');
+                        z.attackCooldown = 30 + (z.type === 'runner' ? 10 : 0);
+                        createParticles(player.x, player.y, 10, '#ff2222', 3, 15);
+                        if (player.health <= 0) {
+                            gameState = 'menu';
+                            menuOpen = false;
+                            showCraft = false;
+                            showMap = false;
+                            return;
+                        }
                     }
                 }
                 if (z.attackCooldown > 0) z.attackCooldown--;
@@ -498,13 +688,14 @@
             }
 
             // Спавн зомби
-            if (gameTick % 160 === 0 && zombies.length < MAX_ZOMBIES) {
+            if (gameTick % 140 === 0 && zombies.length < MAX_ZOMBIES) {
                 spawnZombie();
             }
 
             // Лут анимация
             for (let item of lootItems) {
-                item.bob += 0.05;
+                item.bob += 0.06;
+                item.glow = Math.sin(item.bob) * 0.3 + 0.7;
                 if (item.life) item.life--;
                 if (item.life <= 0) {
                     const idx = lootItems.indexOf(item);
@@ -512,11 +703,25 @@
                 }
             }
 
-            // Game Over
-            if (player.health <= 0) {
-                gameState = 'menu';
-                menuOpen = false;
-                showCraft = false;
+            // Частицы
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.vx *= p.decay || 0.98;
+                p.vy *= p.decay || 0.98;
+                p.vy += 0.05;
+                p.life--;
+                if (p.life <= 0) particles.splice(i, 1);
+            }
+
+            // Урон
+            for (let i = damageNumbers.length - 1; i >= 0; i--) {
+                const d = damageNumbers[i];
+                d.y += d.vy;
+                d.vy *= 0.97;
+                d.life--;
+                if (d.life <= 0) damageNumbers.splice(i, 1);
             }
         }
 
@@ -537,232 +742,398 @@
             ctx.save();
             ctx.translate(-cameraX, -cameraY);
 
-            // Фон земли (текстура)
-            ctx.fillStyle = '#4d6b4a';
+            // Фон
+            const brightness = 0.7 + 0.3 * Math.cos(timeOfDay);
+            const bg = `rgb(${70 + brightness * 30}, ${90 + brightness * 40}, ${70 + brightness * 30})`;
+            ctx.fillStyle = bg;
             ctx.fillRect(0, 0, WORLD_SIZE, WORLD_SIZE);
-            for (let i=0; i<200; i++) {
-                ctx.fillStyle = i%3===0 ? '#5b7a55' : '#3f5e3a';
+            
+            // Трава
+            for (let i=0; i<300; i++) {
+                const shade = 40 + Math.random() * 30;
+                ctx.fillStyle = `rgb(${shade + 30}, ${shade + 50}, ${shade + 20})`;
+                const x = (i * 137 + 50) % WORLD_SIZE;
+                const y = (i * 251 + 30) % WORLD_SIZE;
                 ctx.beginPath();
-                ctx.arc(20 + (i%30)*70, 15 + Math.floor(i/30)*70, 8, 0, Math.PI*2);
+                ctx.arc(x, y, 3 + Math.random() * 4, 0, Math.PI * 2);
                 ctx.fill();
             }
 
-            // Объекты мира (деревья, кусты)
+            // Объекты мира
             for (let obj of worldObjects) {
+                const isVisible = obj.x > cameraX - 100 && obj.x < cameraX + W + 100 && 
+                                 obj.y > cameraY - 100 && obj.y < cameraY + H + 100;
+                if (!isVisible) continue;
+
                 if (obj.type === 'tree') {
-                    // Тень
-                    ctx.shadowColor = '#1a2a1a';
-                    ctx.shadowBlur = 25;
-                    ctx.fillStyle = '#2d4a2d';
-                    ctx.beginPath();
-                    ctx.arc(obj.x, obj.y + 6, obj.radius * 0.9, 0, Math.PI*2);
-                    ctx.fill();
-                    ctx.shadowBlur = 0;
-                    // Ствол
-                    ctx.fillStyle = '#5a3d2a';
-                    ctx.fillRect(obj.x - 6, obj.y - 5, 12, 20);
-                    // Крона
-                    ctx.fillStyle = '#2a6a2a';
-                    ctx.shadowBlur = 20;
-                    ctx.shadowColor = '#1a3a1a';
-                    ctx.beginPath();
-                    ctx.arc(obj.x, obj.y - 6, obj.radius, 0, Math.PI*2);
-                    ctx.fill();
-                    ctx.fillStyle = '#3a8a3a';
-                    ctx.beginPath();
-                    ctx.arc(obj.x - 10, obj.y - 14, obj.radius * 0.7, 0, Math.PI*2);
-                    ctx.fill();
-                    ctx.beginPath();
-                    ctx.arc(obj.x + 12, obj.y - 10, obj.radius * 0.6, 0, Math.PI*2);
-                    ctx.fill();
-                    ctx.shadowBlur = 0;
+                    drawTree(obj);
                 } else if (obj.type === 'bush') {
-                    ctx.shadowColor = '#1a2a1a';
-                    ctx.shadowBlur = 15;
-                    ctx.fillStyle = '#2a5a2a';
-                    ctx.beginPath();
-                    ctx.arc(obj.x, obj.y, obj.radius, 0, Math.PI*2);
-                    ctx.fill();
-                    ctx.fillStyle = '#3a7a3a';
-                    ctx.beginPath();
-                    ctx.arc(obj.x - 8, obj.y - 6, obj.radius * 0.7, 0, Math.PI*2);
-                    ctx.fill();
-                    ctx.beginPath();
-                    ctx.arc(obj.x + 10, obj.y - 4, obj.radius * 0.6, 0, Math.PI*2);
-                    ctx.fill();
-                    ctx.shadowBlur = 0;
+                    drawBush(obj);
+                } else if (obj.type === 'rock') {
+                    drawRock(obj);
                 }
             }
 
             // Лут
             for (let item of lootItems) {
-                const bobY = Math.sin(item.bob) * 4;
-                ctx.shadowColor = '#dbb42c';
-                ctx.shadowBlur = 15;
-                ctx.fillStyle = '#f7d44a';
-                ctx.beginPath();
-                ctx.arc(item.x, item.y + bobY, item.radius, 0, Math.PI*2);
-                ctx.fill();
-                ctx.shadowBlur = 0;
-                ctx.fillStyle = '#3d2b1a';
-                ctx.font = 'bold 16px sans-serif';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                const emojis = { wood: '🪵', stone: '🪨', scrap: '🔩', food: '🍖', water: '💧' };
-                ctx.fillText(emojis[item.type] || '📦', item.x, item.y + bobY + 2);
+                drawLootItem(item);
             }
 
             // Зомби
             for (let z of zombies) {
-                const isVisible = z.x > cameraX - 50 && z.x < cameraX + W + 50 && z.y > cameraY - 50 && z.y < cameraY + H + 50;
-                if (!isVisible) continue;
-                // Тень
-                ctx.shadowColor = '#0a0a0a';
-                ctx.shadowBlur = 20;
-                ctx.fillStyle = '#2a3a2a';
-                ctx.beginPath();
-                ctx.arc(z.x, z.y + 4, z.radius * 0.9, 0, Math.PI*2);
-                ctx.fill();
-                ctx.shadowBlur = 0;
-                // Тело
-                ctx.fillStyle = '#2a5a2a';
-                ctx.beginPath();
-                ctx.arc(z.x, z.y, z.radius, 0, Math.PI*2);
-                ctx.fill();
-                ctx.fillStyle = '#3a7a3a';
-                ctx.beginPath();
-                ctx.arc(z.x - 4, z.y - 4, 8, 0, Math.PI*2);
-                ctx.fill();
-                ctx.beginPath();
-                ctx.arc(z.x + 6, z.y - 3, 7, 0, Math.PI*2);
-                ctx.fill();
-                // Глаза
-                ctx.fillStyle = '#ff4444';
-                ctx.shadowBlur = 8;
-                ctx.shadowColor = '#ff000066';
-                ctx.beginPath();
-                ctx.arc(z.x - 6, z.y - 6, 4, 0, Math.PI*2);
-                ctx.fill();
-                ctx.beginPath();
-                ctx.arc(z.x + 6, z.y - 6, 4, 0, Math.PI*2);
-                ctx.fill();
-                ctx.fillStyle = '#000';
-                ctx.shadowBlur = 0;
-                ctx.beginPath();
-                ctx.arc(z.x - 7, z.y - 8, 2, 0, Math.PI*2);
-                ctx.fill();
-                ctx.beginPath();
-                ctx.arc(z.x + 5, z.y - 8, 2, 0, Math.PI*2);
-                ctx.fill();
-                // Полоска HP
-                ctx.fillStyle = '#333';
-                ctx.fillRect(z.x - 22, z.y - 30, 44, 6);
-                ctx.fillStyle = '#c33';
-                ctx.fillRect(z.x - 22, z.y - 30, (z.health / z.maxHealth) * 44, 6);
-                // Имя
-                ctx.fillStyle = '#ccc';
-                ctx.font = '10px sans-serif';
-                ctx.textAlign = 'center';
-                ctx.fillText(z.type === 'runner' ? 'Бегун' : 'Ходок', z.x, z.y - 38);
+                drawZombie(z);
             }
 
             // Игрок
-            ctx.shadowColor = '#1f3a1f';
-            ctx.shadowBlur = 25;
-            // Тело
-            ctx.fillStyle = '#3e7a47';
-            ctx.beginPath();
-            ctx.arc(player.x, player.y, player.radius, 0, Math.PI*2);
-            ctx.fill();
-            ctx.fillStyle = '#5a9a5a';
-            ctx.beginPath();
-            ctx.arc(player.x - 5, player.y - 5, 9, 0, Math.PI*2);
-            ctx.fill();
-            ctx.beginPath();
-            ctx.arc(player.x + 7, player.y - 4, 8, 0, Math.PI*2);
-            ctx.fill();
-            // Глаза
+            drawPlayer();
+
+            // Частицы
+            for (let p of particles) {
+                ctx.globalAlpha = p.life / p.maxLife;
+                ctx.fillStyle = p.color;
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = p.color;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.radius * (p.life / p.maxLife), 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
             ctx.shadowBlur = 0;
-            ctx.fillStyle = '#fff';
-            ctx.beginPath();
-            ctx.arc(player.x - 6, player.y - 7, 5, 0, Math.PI*2);
-            ctx.fill();
-            ctx.beginPath();
-            ctx.arc(player.x + 6, player.y - 7, 5, 0, Math.PI*2);
-            ctx.fill();
-            ctx.fillStyle = '#2a3a2a';
-            ctx.beginPath();
-            ctx.arc(player.x - 4, player.y - 6, 2.5, 0, Math.PI*2);
-            ctx.fill();
-            ctx.beginPath();
-            ctx.arc(player.x + 8, player.y - 6, 2.5, 0, Math.PI*2);
-            ctx.fill();
-            // Рюкзак
-            ctx.fillStyle = '#6a4a2a';
-            ctx.fillRect(player.x + 10, player.y - 10, 8, 14);
-            // Полоска HP
+
+            // Урон
+            for (let d of damageNumbers) {
+                ctx.globalAlpha = d.life / 40;
+                ctx.fillStyle = d.color;
+                ctx.font = `bold ${d.size}px sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = 'rgba(0,0,0,0.8)';
+                ctx.fillText(d.value, d.x, d.y);
+            }
+            ctx.globalAlpha = 1;
             ctx.shadowBlur = 0;
-            ctx.fillStyle = '#222';
-            ctx.fillRect(player.x - 35, player.y - 40, 70, 8);
-            ctx.fillStyle = '#c33';
-            ctx.fillRect(player.x - 35, player.y - 40, (player.health / player.maxHealth) * 70, 8);
-            ctx.fillStyle = '#aaa';
-            ctx.font = '9px sans-serif';
-            ctx.textAlign = 'center';
-            ctx.fillText(`❤️ ${Math.floor(player.health)}`, player.x, player.y - 46);
 
             ctx.restore();
 
-            // ---- UI (поверх мира) ----
+            // ---- UI ----
             drawUI();
-            if (menuOpen) drawFullMenu();
-            if (showCraft && menuOpen) drawCraftPanel();
+            if (menuOpen) {
+                if (showCraft) drawCraftPanel();
+                else if (showMap) drawMapPanel();
+                else drawInventoryPanel();
+            }
+            drawJoystick();
+        }
 
-            // Джойстик
-            if (joystick.active) {
-                ctx.strokeStyle = '#ffffff66';
-                ctx.lineWidth = 3;
+        // ---- Рисование объектов ----
+        function drawTree(obj) {
+            // Тень
+            ctx.shadowColor = 'rgba(0,0,0,0.3)';
+            ctx.shadowBlur = 25;
+            ctx.fillStyle = '#1a2a1a';
+            ctx.beginPath();
+            ctx.ellipse(obj.x + 5, obj.y + 15, obj.radius * 0.8, obj.radius * 0.4, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            // Ствол
+            const grad = ctx.createLinearGradient(obj.x - 6, obj.y, obj.x + 6, obj.y);
+            grad.addColorStop(0, '#3d2a1a');
+            grad.addColorStop(0.5, '#5a3d2a');
+            grad.addColorStop(1, '#3d2a1a');
+            ctx.fillStyle = grad;
+            ctx.fillRect(obj.x - 5, obj.y - 4, 10, 22);
+            
+            // Крона
+            const colors = ['#2a6a2a', '#3a8a3a', '#4a9a4a', '#2a7a2a'];
+            for (let i=0; i<6; i++) {
+                const angle = i / 6 * Math.PI * 2 + obj.variant * 0.5;
+                const radius = obj.radius * (0.6 + Math.random() * 0.4);
+                const cx = obj.x + Math.cos(angle) * radius * 0.4;
+                const cy = obj.y - 6 + Math.sin(angle) * radius * 0.3;
+                ctx.fillStyle = colors[i % colors.length];
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = 'rgba(20,50,20,0.5)';
                 ctx.beginPath();
-                ctx.arc(joystick.startX, joystick.startY, 35, 0, Math.PI*2);
-                ctx.stroke();
-                ctx.fillStyle = '#ffffff55';
-                ctx.beginPath();
-                ctx.arc(joystick.startX + joystick.deltaX, joystick.startY + joystick.deltaY, 18, 0, Math.PI*2);
+                ctx.arc(cx, cy, radius * 0.5, 0, Math.PI * 2);
                 ctx.fill();
             }
+            ctx.shadowBlur = 0;
+        }
+
+        function drawBush(obj) {
+            ctx.shadowColor = 'rgba(0,0,0,0.3)';
+            ctx.shadowBlur = 20;
+            const colors = ['#2a5a2a', '#3a7a3a', '#4a8a3a'];
+            for (let i=0; i<4; i++) {
+                const angle = i / 4 * Math.PI * 2 + obj.variant;
+                const radius = obj.radius * (0.7 + Math.random() * 0.3);
+                const cx = obj.x + Math.cos(angle) * radius * 0.3;
+                const cy = obj.y + Math.sin(angle) * radius * 0.2;
+                ctx.fillStyle = colors[i % colors.length];
+                ctx.beginPath();
+                ctx.arc(cx, cy, radius * 0.6, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.shadowBlur = 0;
+        }
+
+        function drawRock(obj) {
+            ctx.shadowColor = 'rgba(0,0,0,0.4)';
+            ctx.shadowBlur = 15;
+            const grad = ctx.createRadialGradient(obj.x - 5, obj.y - 5, 2, obj.x, obj.y, obj.radius);
+            grad.addColorStop(0, '#8a8a8a');
+            grad.addColorStop(0.5, '#6a6a6a');
+            grad.addColorStop(1, '#4a4a4a');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.ellipse(obj.x, obj.y + 4, obj.radius, obj.radius * 0.7, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            // Блик
+            ctx.fillStyle = 'rgba(255,255,255,0.15)';
+            ctx.beginPath();
+            ctx.ellipse(obj.x - 5, obj.y - 6, obj.radius * 0.3, obj.radius * 0.2, -0.5, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        function drawLootItem(item) {
+            const bobY = Math.sin(item.bob) * 5;
+            const glow = item.glow || 1;
+            
+            ctx.shadowColor = '#ffdd44';
+            ctx.shadowBlur = 20 * glow;
+            ctx.fillStyle = '#f7d44a';
+            ctx.beginPath();
+            ctx.arc(item.x, item.y + bobY, item.radius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            
+            const emojis = { wood: '🪵', stone: '🪨', scrap: '🔩', food: '🍖', water: '💧', ammunition: '🔫' };
+            ctx.font = '20px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(emojis[item.type] || '📦', item.x, item.y + bobY + 2);
+        }
+
+        function drawZombie(z) {
+            const isVisible = z.x > cameraX - 100 && z.x < cameraX + W + 100 && 
+                             z.y > cameraY - 100 && z.y < cameraY + H + 100;
+            if (!isVisible) return;
+
+            // Тень
+            ctx.shadowColor = 'rgba(0,0,0,0.4)';
+            ctx.shadowBlur = 20;
+            ctx.fillStyle = 'rgba(0,0,0,0.2)';
+            ctx.beginPath();
+            ctx.ellipse(z.x, z.y + z.radius * 0.8, z.radius * 0.8, z.radius * 0.3, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            // Тело
+            const color = z.type === 'tank' ? '#3a5a3a' : z.type === 'runner' ? '#4a5a3a' : '#2a5a2a';
+            const grad = ctx.createRadialGradient(z.x - 5, z.y - 5, 3, z.x, z.y, z.radius);
+            grad.addColorStop(0, color);
+            grad.addColorStop(0.7, '#2a4a2a');
+            grad.addColorStop(1, '#1a3a1a');
+            ctx.fillStyle = grad;
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = 'rgba(0,0,0,0.5)';
+            ctx.beginPath();
+            ctx.arc(z.x, z.y, z.radius, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Глаза
+            ctx.shadowBlur = 0;
+            const eyeOff = z.type === 'tank' ? 8 : 6;
+            ctx.fillStyle = '#ff2222';
+            ctx.shadowBlur = 8;
+            ctx.shadowColor = 'rgba(255,0,0,0.5)';
+            ctx.beginPath();
+            ctx.arc(z.x - eyeOff, z.y - 4, 5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(z.x + eyeOff, z.y - 4, 5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#000';
+            ctx.beginPath();
+            ctx.arc(z.x - eyeOff - 2, z.y - 5, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(z.x + eyeOff - 2, z.y - 5, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+
+            // HP
+            ctx.fillStyle = 'rgba(0,0,0,0.6)';
+            ctx.fillRect(z.x - 25, z.y - z.radius - 14, 50, 6);
+            const hpRatio = z.health / z.maxHealth;
+            ctx.fillStyle = hpRatio > 0.5 ? '#44cc44' : hpRatio > 0.25 ? '#cccc44' : '#cc4444';
+            ctx.fillRect(z.x - 25, z.y - z.radius - 14, 50 * hpRatio, 6);
+
+            // Тип
+            ctx.fillStyle = 'rgba(200,200,200,0.7)';
+            ctx.font = '10px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            const typeNames = { walker: 'Ходок', runner: 'Бегун', tank: 'Танк' };
+            ctx.fillText(typeNames[z.type] || '', z.x, z.y - z.radius - 16);
+            ctx.shadowBlur = 0;
+        }
+
+        function drawPlayer() {
+            // Тень
+            ctx.shadowColor = 'rgba(0,0,0,0.4)';
+            ctx.shadowBlur = 25;
+            ctx.fillStyle = 'rgba(0,0,0,0.2)';
+            ctx.beginPath();
+            ctx.ellipse(player.x + 2, player.y + player.radius * 0.7, player.radius * 0.8, player.radius * 0.3, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            // Тело
+            const grad = ctx.createRadialGradient(player.x - 6, player.y - 6, 4, player.x, player.y, player.radius);
+            grad.addColorStop(0, '#5a9a5a');
+            grad.addColorStop(0.6, '#3e7a47');
+            grad.addColorStop(1, '#2a5a2a');
+            ctx.fillStyle = grad;
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = 'rgba(20,50,20,0.5)';
+            ctx.beginPath();
+            ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Рюкзак
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#5a3d2a';
+            ctx.fillRect(player.x + 10, player.y - 14, 10, 18);
+            ctx.fillStyle = '#6a4d3a';
+            ctx.fillRect(player.x + 8, player.y - 10, 14, 4);
+            ctx.fillRect(player.x + 8, player.y + 2, 14, 4);
+
+            // Глаза
+            ctx.fillStyle = '#fff';
+            ctx.shadowBlur = 0;
+            ctx.beginPath();
+            ctx.ellipse(player.x - 6, player.y - 6, 5, 6, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.ellipse(player.x + 6, player.y - 6, 5, 6, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#2a3a2a';
+            ctx.beginPath();
+            ctx.arc(player.x - 4, player.y - 4, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(player.x + 8, player.y - 4, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Рот
+            ctx.strokeStyle = '#1a2a1a';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(player.x, player.y + 2, 6, 0.1, Math.PI - 0.1);
+            ctx.stroke();
+
+            // Если в кусте - эффект невидимости
+            if (player.inBush) {
+                ctx.fillStyle = 'rgba(50,100,50,0.3)';
+                ctx.beginPath();
+                ctx.arc(player.x, player.y, player.radius + 10, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // HP бар
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = 'rgba(0,0,0,0.7)';
+            ctx.fillRect(player.x - 35, player.y - player.radius - 20, 70, 8);
+            const hpRatio = player.health / player.maxHealth;
+            ctx.fillStyle = hpRatio > 0.5 ? '#44cc44' : hpRatio > 0.25 ? '#cccc44' : '#cc4444';
+            ctx.fillRect(player.x - 35, player.y - player.radius - 20, 70 * hpRatio, 8);
+            
+            // Уровень
+            ctx.fillStyle = '#ffdd44';
+            ctx.font = 'bold 12px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText(`Lv.${player.level}`, player.x, player.y - player.radius - 22);
         }
 
         // ---- UI ----
         function drawUI() {
-            // Статы
-            ctx.fillStyle = '#0a0f0acc';
+            // Верхняя панель
+            ctx.fillStyle = 'rgba(10,15,10,0.85)';
             ctx.shadowBlur = 20;
-            ctx.shadowColor = '#000000aa';
+            ctx.shadowColor = 'rgba(0,0,0,0.7)';
             ctx.beginPath();
-            ctx.roundRect(15, 15, 210, 80, 12);
+            ctx.roundRect(15, 15, 250, 90, 14);
             ctx.fill();
             ctx.shadowBlur = 0;
+
             ctx.fillStyle = '#e0e8d0';
-            ctx.font = 'bold 14px sans-serif';
+            ctx.font = 'bold 15px sans-serif';
             ctx.textAlign = 'left';
-            ctx.fillText(`❤️ ${Math.floor(player.health)}/${player.maxHealth}`, 28, 40);
-            ctx.fillText(`🍖 ${player.hunger}%  💧 ${player.thirst}%`, 28, 62);
-            ctx.fillText(`⚡ ${player.energy}%  🪵 ${inventory.wood}  🪨 ${inventory.stone}`, 28, 84);
+            ctx.textBaseline = 'top';
+            ctx.fillText(`❤️ ${Math.floor(player.health)}/${player.maxHealth}`, 30, 22);
+            ctx.fillText(`🍖 ${Math.floor(player.hunger)}%  💧 ${Math.floor(player.thirst)}%`, 30, 44);
+            ctx.fillText(`⚡ ${Math.floor(player.energy)}%  🏃 ${Math.floor(player.stamina)}%`, 30, 66);
+            ctx.fillText(`🎯 ${player.kills} убийств  ⭐ ${player.level}`, 30, 88);
 
             // Кнопки
             for (let key in buttons) {
-                drawButton(buttons[key]);
+                if (key === 'sprint') {
+                    drawSprintButton();
+                } else {
+                    drawButton(buttons[key]);
+                }
+            }
+
+            // Стаamina bar
+            if (buttons.sprint.active) {
+                ctx.fillStyle = 'rgba(255,200,50,0.3)';
+                ctx.beginPath();
+                ctx.arc(buttons.sprint.x, buttons.sprint.y, buttons.sprint.radius + 6, 0, Math.PI * 2);
+                ctx.fill();
             }
         }
 
         function drawButton(btn) {
             ctx.shadowBlur = 15;
-            ctx.shadowColor = '#00000088';
-            ctx.fillStyle = '#2a3a2acc';
+            ctx.shadowColor = 'rgba(0,0,0,0.6)';
+            const isActive = btn.active || false;
+            ctx.fillStyle = isActive ? '#4a6a4a' : 'rgba(30,45,30,0.85)';
             ctx.beginPath();
-            ctx.arc(btn.x, btn.y, btn.radius, 0, Math.PI*2);
+            ctx.arc(btn.x, btn.y, btn.radius, 0, Math.PI * 2);
             ctx.fill();
-            ctx.strokeStyle = '#7a9a7a';
+            ctx.strokeStyle = isActive ? '#88cc88' : '#6a8a6a';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#f0f8e0';
+            ctx.font = 'bold 26px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(btn.label, btn.x, btn.y + 2);
+
+            // Кулдаун
+            if (btn.cooldown && btn.cooldown > 0) {
+                ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                ctx.beginPath();
+                ctx.arc(btn.x, btn.y, btn.radius, 0, (btn.cooldown / btn.maxCooldown) * Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        function drawSprintButton() {
+            const btn = buttons.sprint;
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = 'rgba(0,0,0,0.6)';
+            ctx.fillStyle = btn.active ? '#4a7a4a' : 'rgba(30,45,30,0.85)';
+            ctx.beginPath();
+            ctx.arc(btn.x, btn.y, btn.radius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = btn.active ? '#88dd88' : '#6a8a6a';
             ctx.lineWidth = 3;
             ctx.stroke();
             ctx.shadowBlur = 0;
@@ -771,184 +1142,318 @@
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText(btn.label, btn.x, btn.y + 2);
+            
+            if (btn.active) {
+                ctx.fillStyle = 'rgba(255,255,200,0.2)';
+                ctx.beginPath();
+                ctx.arc(btn.x, btn.y, btn.radius + 5, 0, Math.PI * 2);
+                ctx.fill();
+            }
         }
 
-        // ---- Полноэкранное меню ----
-        function drawFullMenu() {
-            ctx.fillStyle = '#0a0f0aee';
-            ctx.shadowBlur = 30;
-            ctx.shadowColor = '#000000dd';
+        function drawJoystick() {
+            if (joystick.active) {
+                ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+                ctx.lineWidth = 3;
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = 'rgba(0,0,0,0.5)';
+                ctx.beginPath();
+                ctx.arc(joystick.startX, joystick.startY, 40, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.fillStyle = 'rgba(255,255,255,0.2)';
+                ctx.beginPath();
+                ctx.arc(joystick.startX + joystick.deltaX, joystick.startY + joystick.deltaY, 22, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+        }
+
+        // ---- Панели меню ----
+        function drawInventoryPanel() {
+            ctx.fillStyle = 'rgba(5,10,5,0.92)';
+            ctx.shadowBlur = 40;
+            ctx.shadowColor = 'rgba(0,0,0,0.9)';
             ctx.fillRect(0, 0, W, H);
             ctx.shadowBlur = 0;
 
             ctx.fillStyle = '#c8d8b0';
-            ctx.font = 'bold 30px sans-serif';
+            ctx.font = 'bold 34px sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText('📦 ИНВЕНТАРЬ', W/2, 60);
+            ctx.textBaseline = 'top';
+            ctx.fillText('📦 ИНВЕНТАРЬ', W/2, 30);
 
-            // Иконки ресурсов
             const items = [
-                { key: 'wood', label: '🪵 Древесина', x: 80, y: 120 },
-                { key: 'stone', label: '🪨 Камень', x: 80, y: 180 },
-                { key: 'scrap', label: '🔩 Металл', x: 80, y: 240 },
-                { key: 'food', label: '🍖 Еда', x: 80, y: 300 },
-                { key: 'water', label: '💧 Вода', x: 80, y: 360 },
-                { key: 'medkit', label: '💊 Аптечка', x: 80, y: 420 },
+                { key: 'wood', label: '🪵 Древесина', y: 140 },
+                { key: 'stone', label: '🪨 Камень', y: 200 },
+                { key: 'scrap', label: '🔩 Металл', y: 260 },
+                { key: 'food', label: '🍖 Еда', y: 320 },
+                { key: 'water', label: '💧 Вода', y: 380 },
+                { key: 'medkit', label: '💊 Аптечка', y: 440 },
+                { key: 'ammunition', label: '🔫 Патроны', y: 500 },
             ];
 
             for (let item of items) {
-                ctx.fillStyle = '#2a3a2a';
+                const isUsable = ['food', 'water', 'medkit'].includes(item.key);
+                ctx.fillStyle = isUsable ? 'rgba(50,80,50,0.6)' : 'rgba(30,40,30,0.4)';
                 ctx.beginPath();
-                ctx.roundRect(40, item.y - 20, 280, 45, 10);
+                ctx.roundRect(100, item.y - 20, 500, 44, 10);
                 ctx.fill();
                 ctx.fillStyle = '#e0e8d0';
-                ctx.font = '18px sans-serif';
+                ctx.font = '20px sans-serif';
                 ctx.textAlign = 'left';
-                ctx.fillText(`${item.label}: ${inventory[item.key] || 0}`, 60, item.y + 8);
+                ctx.textBaseline = 'middle';
+                ctx.fillText(`${item.label}: ${inventory[item.key] || 0}`, 130, item.y + 4);
+                if (isUsable && inventory[item.key] > 0) {
+                    ctx.fillStyle = '#8aaa7a';
+                    ctx.font = '16px sans-serif';
+                    ctx.textAlign = 'right';
+                    ctx.fillText('▶ Использовать', 570, item.y + 4);
+                }
             }
-
-            // Использование
-            ctx.fillStyle = '#8aaa7a';
-            ctx.font = '16px sans-serif';
-            ctx.textAlign = 'center';
-            ctx.fillText('▶ Нажмите на строку, чтобы использовать', W/2, 510);
 
             // Закрыть
             ctx.fillStyle = '#5a7a4a';
             ctx.beginPath();
-            ctx.roundRect(W/2 - 80, 500, 160, 40, 12);
+            ctx.roundRect(W/2 - 80, 590, 160, 45, 12);
             ctx.fill();
             ctx.fillStyle = '#f0f8e0';
-            ctx.font = 'bold 18px sans-serif';
-            ctx.fillText('✕ Закрыть', W/2, 527);
-            // Кнопка закрытия (обработка в клике)
+            ctx.font = 'bold 20px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('✕ Закрыть', W/2, 614);
         }
 
         function drawCraftPanel() {
-            ctx.fillStyle = '#0a0f0aee';
-            ctx.shadowBlur = 30;
-            ctx.shadowColor = '#000000dd';
+            ctx.fillStyle = 'rgba(5,10,5,0.92)';
+            ctx.shadowBlur = 40;
+            ctx.shadowColor = 'rgba(0,0,0,0.9)';
             ctx.fillRect(0, 0, W, H);
             ctx.shadowBlur = 0;
 
             ctx.fillStyle = '#c8d8b0';
-            ctx.font = 'bold 30px sans-serif';
+            ctx.font = 'bold 34px sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText('🔧 КРАФТ', W/2, 60);
+            ctx.textBaseline = 'top';
+            ctx.fillText('🔧 КРАФТ', W/2, 30);
 
-            // Рецепты
             const recipes = [
-                { name: '💊 Аптечка', cost: '4 🪵 + 3 🔩', result: '+1 аптечка', y: 160 },
-                { name: '🍲 Еда', cost: '2 🍖 + 2 💧', result: '+3 еды', y: 260 },
+                { name: '💊 Аптечка', cost: '5 🪵 + 3 🔩', result: '+1 аптечка', y: 150 },
+                { name: '🔫 Патроны', cost: '4 🔩 + 2 🪨', result: '+5 патронов', y: 240 },
+                { name: '🍲 Еда', cost: '2 🍖 + 2 💧', result: '+4 еды', y: 330 },
             ];
 
             for (let r of recipes) {
-                ctx.fillStyle = '#2a3a2a';
+                const canCraft = r.name.includes('Аптечка') ? inventory.wood >= 5 && inventory.scrap >= 3 :
+                                 r.name.includes('Патроны') ? inventory.scrap >= 4 && inventory.stone >= 2 :
+                                 inventory.food >= 2 && inventory.water >= 2;
+                ctx.fillStyle = canCraft ? 'rgba(50,80,50,0.6)' : 'rgba(40,30,30,0.5)';
                 ctx.beginPath();
-                ctx.roundRect(100, r.y - 30, 800, 70, 14);
+                ctx.roundRect(150, r.y - 25, 900, 60, 12);
                 ctx.fill();
-                ctx.fillStyle = '#e0e8d0';
+                ctx.fillStyle = canCraft ? '#e0e8d0' : '#8a8a7a';
                 ctx.font = 'bold 22px sans-serif';
                 ctx.textAlign = 'left';
-                ctx.fillText(r.name, 130, r.y + 8);
+                ctx.textBaseline = 'middle';
+                ctx.fillText(r.name, 180, r.y + 6);
                 ctx.font = '18px sans-serif';
-                ctx.fillStyle = '#b0c8a0';
-                ctx.fillText(`Стоимость: ${r.cost}`, 400, r.y + 8);
-                ctx.fillStyle = '#8aaa7a';
-                ctx.textAlign = 'right';
-                ctx.fillText(`▶ Создать`, 860, r.y + 8);
+                ctx.fillStyle = canCraft ? '#b0c8a0' : '#7a7a6a';
+                ctx.fillText(`Стоимость: ${r.cost}`, 450, r.y + 6);
+                if (canCraft) {
+                    ctx.fillStyle = '#8aaa7a';
+                    ctx.textAlign = 'right';
+                    ctx.fillText('▶ Создать', 1000, r.y + 6);
+                } else {
+                    ctx.fillStyle = '#6a6a5a';
+                    ctx.textAlign = 'right';
+                    ctx.fillText('⛔ Недостаточно', 1000, r.y + 6);
+                }
             }
 
             ctx.fillStyle = '#5a7a4a';
             ctx.beginPath();
-            ctx.roundRect(W/2 - 80, 490, 160, 40, 12);
+            ctx.roundRect(W/2 - 80, 590, 160, 45, 12);
             ctx.fill();
             ctx.fillStyle = '#f0f8e0';
-            ctx.font = 'bold 18px sans-serif';
+            ctx.font = 'bold 20px sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText('✕ Закрыть', W/2, 515);
+            ctx.textBaseline = 'middle';
+            ctx.fillText('✕ Закрыть', W/2, 614);
         }
 
-        // ---- Загрузка ----
-        function drawLoading() {
-            ctx.fillStyle = '#1a2a1a';
+        function drawMapPanel() {
+            ctx.fillStyle = 'rgba(5,10,5,0.92)';
+            ctx.shadowBlur = 40;
+            ctx.shadowColor = 'rgba(0,0,0,0.9)';
             ctx.fillRect(0, 0, W, H);
-            ctx.fillStyle = '#8a9a7a';
-            ctx.font = 'bold 48px sans-serif';
+            ctx.shadowBlur = 0;
+
+            ctx.fillStyle = '#c8d8b0';
+            ctx.font = 'bold 34px sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText('⚔️ LAST DAY', W/2, 180);
-            ctx.fillStyle = '#b0c8a0';
-            ctx.font = '32px sans-serif';
-            ctx.fillText('SURVIVAL', W/2, 230);
+            ctx.textBaseline = 'top';
+            ctx.fillText('🗺️ КАРТА МИРА', W/2, 30);
+
+            // Мини-карта
+            const mapSize = 500;
+            const mapX = (W - mapSize) / 2;
+            const mapY = 100;
+            ctx.fillStyle = '#1a2a1a';
+            ctx.beginPath();
+            ctx.roundRect(mapX, mapY, mapSize, mapSize, 14);
+            ctx.fill();
+            ctx.strokeStyle = '#4a6a4a';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(mapX, mapY, mapSize, mapSize);
+
+            // Объекты на карте
+            const scale = mapSize / WORLD_SIZE;
+            for (let obj of worldObjects) {
+                const mx = mapX + obj.x * scale;
+                const my = mapY + obj.y * scale;
+                ctx.fillStyle = obj.type === 'tree' ? '#2a6a2a' : obj.type === 'bush' ? '#3a7a3a' : '#6a6a6a';
+                ctx.beginPath();
+                ctx.arc(mx, my, obj.type === 'tree' ? 4 : 3, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Зомби
+            for (let z of zombies) {
+                const mx = mapX + z.x * scale;
+                const my = mapY + z.y * scale;
+                ctx.fillStyle = '#ff4444';
+                ctx.beginPath();
+                ctx.arc(mx, my, 5, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Игрок
+            const px = mapX + player.x * scale;
+            const py = mapY + player.y * scale;
+            ctx.fillStyle = '#44ff44';
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = '#44ff44';
+            ctx.beginPath();
+            ctx.arc(px, py, 7, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            ctx.fillStyle = '#8a9a7a';
+            ctx.font = '14px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            ctx.fillText('🟢 Вы  🔴 Зомби  🌳 Деревья', W/2, mapY + mapSize + 15);
+
             ctx.fillStyle = '#5a7a4a';
             ctx.beginPath();
-            ctx.roundRect(W/2-150, 290, 300, 24, 12);
+            ctx.roundRect(W/2 - 80, 590, 160, 45, 12);
+            ctx.fill();
+            ctx.fillStyle = '#f0f8e0';
+            ctx.font = 'bold 20px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('✕ Закрыть', W/2, 614);
+        }
+
+        // ---- Меню загрузки ----
+        function drawLoading() {
+            ctx.fillStyle = '#0a0f0a';
+            ctx.fillRect(0, 0, W, H);
+            
+            ctx.fillStyle = '#8a9a7a';
+            ctx.font = 'bold 56px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('⚔️ LAST DAY', W/2, 200);
+            ctx.fillStyle = '#b0c8a0';
+            ctx.font = '34px sans-serif';
+            ctx.fillText('SURVIVAL', W/2, 260);
+            
+            ctx.fillStyle = '#4a6a4a';
+            ctx.beginPath();
+            ctx.roundRect(W/2-180, 330, 360, 28, 14);
             ctx.fill();
             ctx.fillStyle = '#8aba6a';
             ctx.beginPath();
-            ctx.roundRect(W/2-150, 290, (loadingProgress/100)*300, 24, 12);
+            ctx.roundRect(W/2-180, 330, (loadingProgress/100)*360, 28, 14);
             ctx.fill();
+            
             ctx.fillStyle = '#ddd';
-            ctx.font = '18px sans-serif';
-            ctx.fillText(`Загрузка ${Math.floor(loadingProgress)}%`, W/2, 340);
-            ctx.fillStyle = '#7a8a6a';
+            ctx.font = '20px sans-serif';
+            ctx.fillText(`Загрузка ${Math.floor(loadingProgress)}%`, W/2, 390);
+            
+            ctx.fillStyle = '#5a6a4a';
             ctx.font = '14px sans-serif';
-            ctx.fillText('© 2026 · Мобильная версия', W/2, 400);
+            ctx.fillText('v3.0 · Реалистичная версия', W/2, 440);
         }
 
         // ---- Главное меню ----
         function drawMainMenu() {
-            ctx.fillStyle = '#1a2a1a';
+            ctx.fillStyle = '#0a0f0a';
             ctx.fillRect(0, 0, W, H);
-            // Фоновый узор
-            for (let i=0; i<30; i++) {
-                ctx.fillStyle = i%2===0 ? '#2a3a2a' : '#1f2a1f';
+            
+            // Фоновый эффект
+            for (let i=0; i<50; i++) {
+                const x = (i * 137 + 50) % W;
+                const y = (i * 251 + 30) % H;
+                ctx.fillStyle = `rgba(30,50,30,${0.1 + Math.random() * 0.1})`;
                 ctx.beginPath();
-                ctx.arc(30 + (i%10)*100, 20 + Math.floor(i/10)*180, 40, 0, Math.PI*2);
+                ctx.arc(x, y, 20 + Math.random() * 30, 0, Math.PI * 2);
                 ctx.fill();
             }
-            ctx.shadowBlur = 30;
-            ctx.shadowColor = '#00000088';
-            ctx.fillStyle = '#0a0f0acc';
+            
+            ctx.shadowBlur = 40;
+            ctx.shadowColor = 'rgba(0,0,0,0.8)';
+            ctx.fillStyle = 'rgba(10,15,10,0.85)';
             ctx.beginPath();
-            ctx.roundRect(W/2-250, 80, 500, 350, 30);
+            ctx.roundRect(W/2-300, 60, 600, 420, 30);
             ctx.fill();
             ctx.shadowBlur = 0;
 
             ctx.fillStyle = '#c8d8b0';
-            ctx.font = 'bold 52px sans-serif';
+            ctx.font = 'bold 60px sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText('⚔️ ВЫЖИВАНИЕ', W/2, 170);
+            ctx.textBaseline = 'top';
+            ctx.fillText('⚔️ ВЫЖИВАНИЕ', W/2, 90);
             ctx.fillStyle = '#b0c8a0';
-            ctx.font = '26px sans-serif';
-            ctx.fillText('Last Day on Earth', W/2, 220);
-
-            // Кнопка играть
-            ctx.shadowBlur = 25;
-            ctx.shadowColor = '#3a6a3a88';
-            ctx.fillStyle = '#4a7a3a';
-            ctx.beginPath();
-            ctx.roundRect(W/2-140, 270, 280, 70, 18);
-            ctx.fill();
-            ctx.shadowBlur = 0;
-            ctx.fillStyle = '#f0f8e0';
-            ctx.font = 'bold 34px sans-serif';
-            ctx.fillText('▶ ИГРАТЬ', W/2, 315);
+            ctx.font = '28px sans-serif';
+            ctx.fillText('Last Day on Earth', W/2, 170);
 
             ctx.fillStyle = '#8a9a7a';
             ctx.font = '18px sans-serif';
-            ctx.fillText('v2.0 · Улучшенная версия', W/2, 390);
+            ctx.fillText('Реалистичный выживание в постапокалипсисе', W/2, 220);
 
-            // Кредиты
-            ctx.fillStyle = '#5a6a4a';
+            // Кнопка играть
+            ctx.shadowBlur = 30;
+            ctx.shadowColor = 'rgba(50,150,50,0.3)';
+            ctx.fillStyle = '#4a8a3a';
+            ctx.beginPath();
+            ctx.roundRect(W/2-160, 280, 320, 75, 18);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#f0f8e0';
+            ctx.font = 'bold 38px sans-serif';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('▶ ИГРАТЬ', W/2, 318);
+
+            // Особенности
+            ctx.fillStyle = '#6a8a5a';
+            ctx.font = '16px sans-serif';
+            ctx.textBaseline = 'top';
+            const features = ['🔫 Реалистичный бой', '🌳 Огромный мир', '📦 Крафт и инвентарь', '🏃 Спринт'];
+            for (let i=0; i<features.length; i++) {
+                ctx.fillText(features[i], W/2 - 120 + i * 70, 380);
+            }
+
+            ctx.fillStyle = '#4a5a4a';
             ctx.font = '14px sans-serif';
-            ctx.fillText('Сражайся, собирай, выживай!', W/2, 430);
+            ctx.textBaseline = 'bottom';
+            ctx.fillText('v3.0 · Мультитач · Реалистичная графика', W/2, 470);
         }
 
         // ---- Цикл ----
         function gameLoop() {
             if (gameState === 'loading') {
-                loadingProgress += 0.7;
+                loadingProgress += 0.6;
                 if (loadingProgress >= 100) {
                     loadingProgress = 100;
                     gameState = 'menu';
@@ -961,7 +1466,7 @@
 
         // ---- Полифиллы ----
         if (!CanvasRenderingContext2D.prototype.roundRect) {
-            CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
+            CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
                 if (r > w/2) r = w/2;
                 if (r > h/2) r = h/2;
                 this.moveTo(x + r, y);
@@ -974,7 +1479,7 @@
             };
         }
 
-        // ---- События ----
+        // ---- События (мультитач) ----
         canvas.addEventListener('mousedown', handlePointerDown);
         window.addEventListener('mousemove', handlePointerMove);
         window.addEventListener('mouseup', handlePointerUp);
