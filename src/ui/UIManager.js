@@ -1,223 +1,183 @@
-// Добавьте в конструктор UIManager новые кнопки
-this.buttons = {
-    // ... существующие кнопки
-    companions: { x: 780, y: 80, radius: 38, label: '🤝', color: '#44aa88', activeColor: '#66ccaa' },
-    base: { x: 880, y: 80, radius: 38, label: '🏰', color: '#aa8844', activeColor: '#ccaa66' },
-    weather: { x: 980, y: 80, radius: 38, label: '🌤️', color: '#44aacc', activeColor: '#66ccdd' }
-};
-
-this.tabs = ['inventory', 'craft', 'quests', 'pets', 'buildings', 'stats', 'minigames', 'reputation', 'companions', 'base', 'weather'];
-this.tabNames = {
-    inventory: '📦 Инвентарь',
-    craft: '🔧 Крафт',
-    quests: '📋 Квесты',
-    pets: '🐾 Питомцы',
-    buildings: '🏗️ Строительство',
-    stats: '📊 Статистика',
-    minigames: '🎮 Мини-игры',
-    reputation: '⭐ Репутация',
-    companions: '🤝 Компаньоны',
-    base: '🏰 База',
-    weather: '🌤️ Погода'
-};
-
-// Добавьте новые методы отрисовки
-drawCompanionsContent(ctx, y) {
-    const companionSystem = window.companionSystem;
-    if (!companionSystem) return;
-
-    const companions = companionSystem.getCompanions();
-    const companionTypes = companionSystem.getCompanionTypes();
-    const active = companionSystem.getActiveCompanion();
-    const startX = (this.W - 900) / 2;
-    let currentY = y;
-
-    // Активные компаньоны
-    for (let i = 0; i < companions.length; i++) {
-        const comp = companions[i];
-        const isActive = comp === active;
-        const type = companionTypes[comp.type];
-        
-        ctx.fillStyle = isActive ? 'rgba(50,100,50,0.5)' : 'rgba(30,40,30,0.3)';
-        ctx.beginPath();
-        ctx.roundRect(startX, currentY, 900, 60, 10);
-        ctx.fill();
-        
-        ctx.fillStyle = isActive ? '#ffdd44' : '#e0e8d0';
-        ctx.font = 'bold 20px sans-serif';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(comp.name, startX + 20, currentY + 20);
-        
-        ctx.font = '16px sans-serif';
-        ctx.fillStyle = '#b0c8a0';
-        ctx.fillText(`Здоровье: ${Math.floor(comp.health)}/${comp.maxHealth}`, startX + 200, currentY + 20);
-        ctx.fillText(`Уровень: ${comp.level}`, startX + 350, currentY + 20);
-        
-        if (isActive) {
-            ctx.fillStyle = '#44dd44';
-            ctx.textAlign = 'right';
-            ctx.fillText('✅ Активен', startX + 880, currentY + 20);
-        } else {
-            ctx.fillStyle = '#8aaa7a';
-            ctx.textAlign = 'right';
-            ctx.fillText('▶ Активировать', startX + 880, currentY + 20);
-        }
-        currentY += 80;
+export class UIManager {
+    constructor(ctx, soundManager, toastManager) {
+        this.ctx = ctx;
+        this.soundManager = soundManager;
+        this.toastManager = toastManager;
+        this.W = 1600;
+        this.H = 900;
+        this.showMenu = false;
+        this.sprintActive = false;
+        this.selectedTab = 'inventory';
+        this.tabs = ['inventory', 'stats'];
+        this.tabNames = {
+            inventory: '📦 Инвентарь',
+            stats: '📊 Статистика'
+        };
     }
 
-    // Доступные компаньоны
-    ctx.fillStyle = '#8a9a7a';
-    ctx.font = '18px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('🤝 Доступные компаньоны:', this.W/2, currentY + 10);
-    currentY += 50;
-
-    for (let [type, data] of Object.entries(companionTypes)) {
-        ctx.fillStyle = 'rgba(40,70,40,0.3)';
-        ctx.beginPath();
-        ctx.roundRect(startX, currentY, 900, 50, 10);
-        ctx.fill();
-        ctx.fillStyle = '#b0c8a0';
-        ctx.font = '16px sans-serif';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(`${data.name} - ${data.description}`, startX + 20, currentY + 25);
+    render(player, zombieManager, inputManager) {
+        if (!player) return;
+        this.drawUI(player);
         
-        let costStr = '';
-        for (let [resource, count] of Object.entries(data.cost)) {
-            const emojis = { wood: '🪵', stone: '🪨', scrap: '🔩', food: '🍖', water: '💧', gold: '🪙', herbs: '🌿' };
-            costStr += `${emojis[resource] || ''}${count} `;
+        if (this.showMenu) {
+            this.drawMenu(player);
         }
-        ctx.fillStyle = '#8a9a7a';
-        ctx.font = '14px sans-serif';
-        ctx.fillText(`Стоимость: ${costStr}`, startX + 450, currentY + 25);
-        
-        ctx.fillStyle = '#8aaa7a';
-        ctx.textAlign = 'right';
-        ctx.fillText('▶ Нанять', startX + 880, currentY + 25);
-        currentY += 60;
     }
-}
 
-drawBaseContent(ctx, y) {
-    const baseSystem = window.baseSystem;
-    if (!baseSystem) return;
-
-    const info = baseSystem.getBaseInfo();
-    const nextCost = baseSystem.getNextLevelCost();
-    const startX = (this.W - 800) / 2;
-    let currentY = y;
-
-    // Информация о базе
-    ctx.fillStyle = 'rgba(50,80,50,0.4)';
-    ctx.beginPath();
-    ctx.roundRect(startX, currentY, 800, 120, 10);
-    ctx.fill();
-    
-    ctx.fillStyle = '#e0e8d0';
-    ctx.font = 'bold 24px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    ctx.fillText(`🏰 База ${info.level} уровня`, this.W/2, currentY + 10);
-    
-    ctx.font = '18px sans-serif';
-    ctx.fillStyle = '#b0c8a0';
-    ctx.textAlign = 'left';
-    ctx.fillText(`Здоровье: ${Math.floor(info.health)}/${info.maxHealth}`, startX + 30, currentY + 55);
-    ctx.fillText(`Защита: ${info.defense}`, startX + 300, currentY + 55);
-    ctx.fillText(`Рабочие: ${info.workers}`, startX + 550, currentY + 55);
-    ctx.fillText(`Производство: 🪵${Math.floor(info.production?.wood || 0)}/ч`, startX + 30, currentY + 85);
-    ctx.fillText(`🪨${Math.floor(info.production?.stone || 0)}/ч`, startX + 300, currentY + 85);
-    ctx.fillText(`🍖${Math.floor(info.production?.food || 0)}/ч`, startX + 550, currentY + 85);
-    
-    currentY += 140;
-
-    // Улучшение
-    if (nextCost) {
-        ctx.fillStyle = 'rgba(40,60,40,0.4)';
-        ctx.beginPath();
-        ctx.roundRect(startX, currentY, 800, 60, 10);
-        ctx.fill();
+    drawUI(player) {
+        const ctx = this.ctx;
+        if (!player) return;
         
+        ctx.fillStyle = 'rgba(10,15,10,0.85)';
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = 'rgba(0,0,0,0.7)';
+        ctx.beginPath();
+        ctx.roundRect(15, 15, 380, 110, 14);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
         ctx.fillStyle = '#e0e8d0';
-        ctx.font = '18px sans-serif';
+        ctx.font = 'bold 14px sans-serif';
         ctx.textAlign = 'left';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(`Следующий уровень: ${info.level + 1}`, startX + 30, currentY + 30);
+        ctx.textBaseline = 'top';
         
-        let costStr = '';
-        for (let [resource, count] of Object.entries(nextCost)) {
-            const emojis = { wood: '🪵', stone: '🪨', scrap: '🔩', gold: '🪙' };
-            costStr += `${emojis[resource] || ''}${count} `;
+        const hpRatio = player.health / player.maxHealth;
+        ctx.fillStyle = hpRatio > 0.5 ? '#44cc44' : hpRatio > 0.25 ? '#cccc44' : '#cc4444';
+        ctx.fillRect(28, 24, 120, 6);
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.fillRect(28, 24, 120 * (1 - hpRatio), 6);
+        ctx.fillStyle = '#e0e8d0';
+        ctx.fillText(`❤️ ${Math.floor(player.health)}/${player.maxHealth}`, 30, 22);
+        
+        ctx.fillText(`🍖 ${Math.floor(player.hunger)}%  💧 ${Math.floor(player.thirst)}%`, 30, 44);
+        ctx.fillText(`⚡ ${Math.floor(player.energy)}%  🏃 ${Math.floor(player.stamina)}%`, 30, 66);
+        ctx.fillText(`🎯 ${player.kills || 0} убийств  ⭐ ${player.level}  🛡️ ${Math.floor(player.shield || 0)}`, 30, 88);
+
+        // Кнопки
+        this.drawButtons(player);
+        
+        if (player.poison > 0) {
+            ctx.fillStyle = 'rgba(100,0,0,0.7)';
+            ctx.font = 'bold 14px sans-serif';
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'top';
+            ctx.fillText(`☠️ ${player.poison}`, 410, 22);
         }
-        ctx.fillStyle = '#b0c8a0';
-        ctx.fillText(`Стоимость: ${costStr}`, startX + 300, currentY + 30);
+    }
+
+    drawButtons(player) {
+        const ctx = this.ctx;
+        if (!player) return;
         
-        ctx.fillStyle = '#8aaa7a';
-        ctx.textAlign = 'right';
-        ctx.fillText('▶ Улучшить', startX + 770, currentY + 30);
-    } else {
-        ctx.fillStyle = '#8a9a7a';
-        ctx.font = '18px sans-serif';
+        const buttons = {
+            attack: { x: 1200, y: 580, radius: 55, label: '⚔️', color: '#cc4444' },
+            loot: { x: 1060, y: 580, radius: 48, label: '📦', color: '#44aacc' },
+            craft: { x: 920, y: 580, radius: 48, label: '🔧', color: '#ccaa44' },
+            menu: { x: 180, y: 80, radius: 40, label: '☰', color: '#8866aa' },
+            sprint: { x: 340, y: 620, radius: 44, label: '🏃', color: '#66aa44' }
+        };
+        
+        for (let key in buttons) {
+            const btn = buttons[key];
+            const isActive = key === 'sprint' && this.sprintActive;
+            
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = 'rgba(0,0,0,0.6)';
+            ctx.fillStyle = isActive ? '#88dd66' : btn.color + 'cc';
+            ctx.beginPath();
+            ctx.arc(btn.x, btn.y, btn.radius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = isActive ? '#ffffff66' : 'rgba(255,255,255,0.2)';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#f0f8e0';
+            ctx.font = 'bold 28px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(btn.label, btn.x, btn.y + 2);
+            
+            if (key === 'attack' && player.attackCooldown > 0) {
+                const progress = player.attackCooldown / 18;
+                ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                ctx.beginPath();
+                ctx.moveTo(btn.x, btn.y);
+                ctx.arc(btn.x, btn.y, btn.radius, -Math.PI/2, -Math.PI/2 + progress * Math.PI * 2);
+                ctx.closePath();
+                ctx.fill();
+            }
+            
+            if (key === 'sprint' && isActive) {
+                ctx.fillStyle = 'rgba(255,255,200,0.15)';
+                ctx.beginPath();
+                ctx.arc(btn.x, btn.y, btn.radius + 6, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+    }
+
+    drawMenu(player) {
+        const ctx = this.ctx;
+        const W = this.W, H = this.H;
+        
+        ctx.fillStyle = 'rgba(5,10,5,0.94)';
+        ctx.fillRect(0, 0, W, H);
+        
+        ctx.fillStyle = '#c8d8b0';
+        ctx.font = 'bold 34px sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('🏆 Максимальный уровень достигнут!', this.W/2, currentY + 30);
-    }
-}
-
-drawWeatherContent(ctx, y) {
-    const weatherSystem = window.weatherSystem;
-    if (!weatherSystem) return;
-
-    const weather = weatherSystem.getWeather();
-    const startX = (this.W - 600) / 2;
-    let currentY = y;
-
-    const weatherData = [
-        { label: '🌤️ Погода', value: weather.type },
-        { label: '🌡️ Температура', value: `${Math.round(weather.temperature)}°C` },
-        { label: '💧 Влажность', value: `${Math.round(weather.humidity)}%` },
-        { label: '💨 Ветер', value: `${Math.round(weather.windLevel * 5)} км/ч` },
-        { label: '🌧️ Дождь', value: weather.isRaining ? 'Да' : 'Нет' },
-        { label: '🌫️ Туман', value: weather.isFoggy ? 'Да' : 'Нет' }
-    ];
-
-    for (let i = 0; i < weatherData.length; i++) {
-        const data = weatherData[i];
-        const yPos = currentY + i * 60;
+        ctx.textBaseline = 'top';
+        ctx.fillText('📊 ИНФОРМАЦИЯ', W/2, 30);
         
-        ctx.fillStyle = 'rgba(40,60,40,0.4)';
+        // Статистика
+        const stats = [
+            { label: 'Уровень', value: player.level },
+            { label: 'Здоровье', value: `${Math.floor(player.health)}/${player.maxHealth}` },
+            { label: 'Убийств', value: player.kills || 0 },
+            { label: 'Дней выжито', value: player.daysSurvived || 0 },
+            { label: 'Золото', value: window.inventory ? window.inventory.getItemCount('gold') : 0 },
+            { label: 'Броня', value: player.armor || 0 },
+            { label: 'Щит', value: Math.floor(player.shield || 0) },
+            { label: 'Опыт', value: `${player.experience}/${player.level * 25}` }
+        ];
+        
+        const startX = (W - 500) / 2;
+        let y = 120;
+        
+        for (let stat of stats) {
+            ctx.fillStyle = 'rgba(40,60,40,0.4)';
+            ctx.beginPath();
+            ctx.roundRect(startX, y, 500, 45, 10);
+            ctx.fill();
+            
+            ctx.fillStyle = '#e0e8d0';
+            ctx.font = '18px sans-serif';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(stat.label, startX + 20, y + 22);
+            ctx.fillStyle = '#ffdd44';
+            ctx.textAlign = 'right';
+            ctx.fillText(stat.value, startX + 480, y + 22);
+            y += 55;
+        }
+        
+        // Кнопка закрытия
+        ctx.fillStyle = '#5a7a4a';
         ctx.beginPath();
-        ctx.roundRect(startX, yPos, 600, 50, 10);
+        ctx.roundRect(W/2 - 80, H - 80, 160, 45, 12);
         ctx.fill();
-        
-        ctx.fillStyle = '#e0e8d0';
-        ctx.font = '18px sans-serif';
-        ctx.textAlign = 'left';
+        ctx.fillStyle = '#f0f8e0';
+        ctx.font = 'bold 20px sans-serif';
+        ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(data.label, startX + 20, yPos + 25);
-        ctx.fillStyle = '#ffdd44';
-        ctx.textAlign = 'right';
-        ctx.fillText(data.value, startX + 580, yPos + 25);
+        ctx.fillText('✕ Закрыть', W/2, H - 58);
     }
 
-    // Эффекты погоды
-    currentY += weatherData.length * 60 + 20;
-    ctx.fillStyle = '#8a9a7a';
-    ctx.font = '16px sans-serif';
-    ctx.textAlign = 'center';
-    
-    let effects = [];
-    if (weather.isRaining) effects.push('🌧️ Скорость передвижения снижена');
-    if (weather.isStorm) effects.push('⛈️ Шторм! Опасно находиться на открытой местности');
-    if (weather.isFoggy) effects.push('🌫️ Видимость снижена');
-    if (weather.isWindy) effects.push('💨 Ветер замедляет движение');
-    if (weather.temperature > 25) effects.push('☀️ Жарко! Быстрее расходуется вода');
-    if (weather.temperature < 10) effects.push('❄️ Холодно! Быстрее расходуется еда');
-    
-    for (let effect of effects) {
-        ctx.fillStyle = '#b0c8a0';
-        ctx.fillText(effect, this.W/2, currentY);
-        currentY += 30;
+    toggleSprint() {
+        this.sprintActive = !this.sprintActive;
+        if (this.sprintActive && this.soundManager) {
+            this.soundManager.play('craft');
+        }
+        return this.sprintActive;
     }
 }
