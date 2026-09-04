@@ -43,9 +43,7 @@ const tips = [
     '💡 Участвуйте в мини-играх для дополнительных наград',
     '💡 Следите за репутацией для получения бонусов',
     '💡 Собирайте ресурсы для крафта и строительства',
-    '💡 Создайте базу для безопасного хранения ресурсов',
-    '💡 Компаньоны помогут вам в трудную минуту',
-    '💡 Следите за погодой - она влияет на выживание'
+    '💡 Создайте базу для безопасного хранения ресурсов'
 ];
 
 // Инициализация менеджеров
@@ -114,15 +112,19 @@ const game = new Game({
 // Загрузка
 let progress = 0;
 let tipIndex = 0;
+let loaded = false;
+
 const tipInterval = setInterval(() => {
     tipIndex = (tipIndex + 1) % tips.length;
     tipText.textContent = tips[tipIndex];
 }, 3000);
 
 const loadingInterval = setInterval(() => {
+    if (loaded) return;
     progress += Math.random() * 2 + 1;
     if (progress >= 100) {
         progress = 100;
+        loaded = true;
         clearInterval(loadingInterval);
         clearInterval(tipInterval);
         setTimeout(() => {
@@ -134,6 +136,7 @@ const loadingInterval = setInterval(() => {
     document.querySelector('.loading-text').textContent = `Загрузка ${Math.floor(progress)}%`;
 }, 50);
 
+// Экспорт для отладки
 window.game = game;
 window.player = player;
 window.inventory = inventory;
